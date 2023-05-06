@@ -1,6 +1,6 @@
 body {
-  background-color: #f1f3f4; /* Light gray */
-  color: #333; /* Dark gray */
+  background-color: #485054; /* Light gray */
+  color: #fff; /* Dark gray */
   font-family: 'Press Start 2P', cursive;
   text-align: center;
 }
@@ -9,7 +9,7 @@ h1 {
   font-size: 4em;
   margin-top: 20px;
   color: #4285F4;
-  outline: #333;
+  outline: #485054;
   outline-width: 5px;
 }
 
@@ -45,7 +45,7 @@ button:hover {
 .progress-bar {
   width: 100%;
   height: 30px;
-  background-color: #f1f3f4; /* Light gray */
+  background-color: #485054; /* Light gray */
   margin-bottom: 10px;
   overflow: hidden;
 }
@@ -76,12 +76,12 @@ button:hover {
   width: 100%;
   text-align: center;
   padding: 20px 0;
-  background-color: #f1f3f4;
+  background-color: #485054;
   color: #F4B400;
 }
 
 .how-it-works p {
-  color: black;
+  color: #fff;
   margin-bottom: 1%;
   padding-left: 1em;
   text-indent: -1em;
