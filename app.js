@@ -391,7 +391,7 @@ setInterval(async () => {
   } else {
     blockElement.style.color = '#4285F4';
   }
-}, 1000);
+}, 500);
 
 function getBlockInterval(blocksSinceStart) {
   if (blocksSinceStart < 10) return 5;
