@@ -8,13 +8,13 @@ body {
 h1 {
   font-size: 4em;
   margin-top: 20px;
-  color: #4285F4;
+  color: #1DA1F2;
   outline: #485054;
   outline-width: 5px;
 }
 
 p {
-  font-size: 2em;
+  font-size: 1.2em;
   margin-bottom: 5px;
   
 }
@@ -52,7 +52,7 @@ button:hover {
 
 .progress {
   height: 100%;
-  background-color: #4285F4; /* Google Blue */
+  background-color: #1DA1F2; /* Google Blue */
   width: 0;
   transition: width 0.3s ease;
 }
@@ -62,7 +62,7 @@ button:hover {
 }
 
 #threshold-progress {
-  background-color: #DB4437; /* Google Red */
+  background-color: #F4B400; /* Google Red */
 }
 
 .green-text {

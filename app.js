@@ -33,7 +33,7 @@ function updateWinnerText(winnerAddress, connectedAddress, winnerElement) {
 		winnerElement.textContent = 'You';
 	} else {
 		winnerElement.textContent = winnerAddress;
-		winnerElement.style.color = '#4285F4';
+		winnerElement.style.color = '#1DA1F2';
 	}
   }
 
@@ -88,53 +88,6 @@ window.addEventListener('load', async () => {
 	},
 	{
 		"inputs": [],
-		"name": "play",
-		"outputs": [],
-		"stateMutability": "payable",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "renounceOwnership",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "_daoAddress",
-				"type": "address"
-			}
-		],
-		"name": "setDaoAddress",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "toggleFreePlays",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "newOwner",
-				"type": "address"
-			}
-		],
-		"name": "transferOwnership",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [],
 		"name": "blockTarget",
 		"outputs": [
 			{
@@ -186,8 +139,14 @@ window.addEventListener('load', async () => {
 		"type": "function"
 	},
 	{
-		"inputs": [],
-		"name": "freePlaysEnabled",
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "",
+				"type": "address"
+			}
+		],
+		"name": "freePlayUsed",
 		"outputs": [
 			{
 				"internalType": "bool",
@@ -199,14 +158,8 @@ window.addEventListener('load', async () => {
 		"type": "function"
 	},
 	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "",
-				"type": "address"
-			}
-		],
-		"name": "freePlayUsed",
+		"inputs": [],
+		"name": "freePlaysEnabled",
 		"outputs": [
 			{
 				"internalType": "bool",
@@ -283,6 +236,13 @@ window.addEventListener('load', async () => {
 		"type": "function"
 	},
 	{
+		"inputs": [],
+		"name": "play",
+		"outputs": [],
+		"stateMutability": "payable",
+		"type": "function"
+	},
+	{
 		"inputs": [
 			{
 				"internalType": "uint256",
@@ -313,13 +273,55 @@ window.addEventListener('load', async () => {
 		],
 		"stateMutability": "view",
 		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "renounceOwnership",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "_daoAddress",
+				"type": "address"
+			}
+		],
+		"name": "setDaoAddress",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "toggleFreePlays",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "newOwner",
+				"type": "address"
+			}
+		],
+		"name": "transferOwnership",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
 	}
 ];
-const gameContractAddress = '0x74100d9E49A38dF6c84964c6fd23BFd1b7B70f1e';
+const gameContractAddress = '0x5796878a6b27d7d1C980824936Ab6D61A8304467';
 gameContract = new web3.eth.Contract(gameAbi, gameContractAddress);
 
 const winnerElement = document.getElementById('winner');
 const blockElement = document.getElementById('block');
+const blocksToGoElement = document.getElementById('blocksToGo');
+const currentPeriodElement = document.getElementById('currentPeriod');
 const targetElement = document.getElementById('target');
 const potElement = document.getElementById('pot');
 const targetProgressElement = document.getElementById('target-progress');
@@ -374,6 +376,8 @@ setInterval(async () => {
   lastPotElement.textContent = (web3.utils.fromWei(lastPot, 'ether') * 1).toFixed(3);
 
   blockElement.textContent = currentBlock;
+  blocksToGoElement.textContent = blocksToWin;
+  currentPeriodElement.textContent = (currentBlock - firstPlayBlock);
   targetElement.textContent = blockTarget;
   potElement.textContent = (web3.utils.fromWei(pot, 'ether') * 0.777).toFixed(3);
 
@@ -389,9 +393,9 @@ setInterval(async () => {
     blockElement.style.color = '#0F9D58';
     winnerElement.style.color = '#0F9D58';
   } else {
-    blockElement.style.color = '#4285F4';
+    blockElement.style.color = '#1DA1F2';
   }
-}, 500);
+}, 1000);
 
 function getBlockInterval(blocksSinceStart) {
   if (blocksSinceStart < 1000) return 120;
