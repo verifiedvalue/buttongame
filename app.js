@@ -315,7 +315,7 @@ window.addEventListener('load', async () => {
 		"type": "function"
 	}
 ];
-const gameContractAddress = '0xF0a25038DE3686fab6b61662A0f1aD520c7e0409';
+const gameContractAddress = '0x74100d9E49A38dF6c84964c6fd23BFd1b7B70f1e';
 gameContract = new web3.eth.Contract(gameAbi, gameContractAddress);
 
 const winnerElement = document.getElementById('winner');
@@ -357,11 +357,11 @@ setInterval(async () => {
   const currentInterval = getBlockInterval(currentBlock - firstPlayBlock);
   const blocksToNextInterval = firstPlayBlock + (currentInterval * 10) - currentBlock;
   const blocksToWin = blockTarget - currentBlock;
-  const targetProgress = ((32 - blocksToWin) / (32)) * 100;
+  const targetProgress = ((121 - blocksToWin) / (120)) * 100;
   console.log(blocksToWin);
   console.log(blockTarget - lastBlockPlayed);
   console.log(currentInterval);
-  const thresholdProgress = ((currentBlock - firstPlayBlock) % 10) / 9 * 100;
+  const thresholdProgress = ((currentBlock - firstPlayBlock) % 1000) / 999 * 100;
 
   if (lastWin.toLowerCase() === connectedAddress.toLowerCase()) {
 	lastWinnerElement.style.color = '#F4B400';
@@ -394,11 +394,16 @@ setInterval(async () => {
 }, 500);
 
 function getBlockInterval(blocksSinceStart) {
-  if (blocksSinceStart < 10) return 5;
-  if (blocksSinceStart < 20) return 4;
-  if (blocksSinceStart < 30) return 3;
-  if (blocksSinceStart < 40) return 2;
-  if (blocksSinceStart < 50) return 1;
-  return 1;
+  if (blocksSinceStart < 1000) return 120;
+  if (blocksSinceStart < 2000) return 45;
+  if (blocksSinceStart < 3000) return 15;
+  if (blocksSinceStart < 4000) return 5;
+  return 2;
 }
 });
+
+
+
+
+
+
