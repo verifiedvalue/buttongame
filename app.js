@@ -8,12 +8,12 @@ async function isFreePlayEligible() {
 	return !freePlayUsed && freePlaysEnabled;
 }
 
-async function updatePlayButtonText() {
-  const isEligible = await isFreePlayEligible();
-  const playButton = document.getElementById('playButton');
-  playButton.innerText = isEligible ? '1 FREE PLAY' : 'PLAY 0.0069 ETH';
-  playButton.color = "#0F9D58";
-}
+// async function updatePlayButtonText() {
+//   const isEligible = await isFreePlayEligible();
+//   const playButton = document.getElementById('playButton');
+//   playButton.innerText = isEligible ? '1 FREE PLAY' : 'PLAY 0.0069 ETH';
+//   playButton.color = "#0F9D58";
+// }
 
 async function updatePlayButtonText(winner, connectedWallet, blocksToGo) {
 	const isEligible = await isFreePlayEligible();
@@ -360,9 +360,9 @@ const lastWinnerElement = document.getElementById('last-win');
 const lastPotElement = document.getElementById('last-pot');
 
 	// Add an event listener for account changes
-ethereum.on('accountsChanged', () => {
-	updatePlayButtonText();
-});
+// ethereum.on('accountsChanged', () => {
+// 	updatePlayButtonText();
+// });
 
 setInterval(async () => {
 	const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
@@ -375,8 +375,13 @@ setInterval(async () => {
 	const lastBlockPlayed = await gameContract.methods.lastBlockPlayed().call();
 	const lastWin = await gameContract.methods.lastWin().call();
 	const lastPot = await gameContract.methods.lastPot().call();
+
+	const currentInterval = getBlockInterval(currentBlock - startBlock);
+  	const blocksToNextInterval = startBlock + (currentInterval * 10) - currentBlock;
+  	const blocksToWin = blockTarget - currentBlock;
     // Call updatePlayButtonText() when the page loads
-	updatePlayButtonText(currentWinner, connectedAddress, blocksToGo);
+
+	updatePlayButtonText(currentWinner, connectedAddress, blocksToWin);
 	updateWinnerText(currentWinner, connectedAddress, winnerElement);
 
 	// Add an event listener for account changes
@@ -386,9 +391,7 @@ setInterval(async () => {
 
 	blockElement.textContent = currentBlock;
 
-  const currentInterval = getBlockInterval(currentBlock - startBlock);
-  const blocksToNextInterval = startBlock + (currentInterval * 10) - currentBlock;
-  const blocksToWin = blockTarget - currentBlock;
+  
   const targetProgress = ((80 - blocksToWin) / (80)) * 100;
   const thresholdProgress = ((currentBlock - startBlock) % 80) / 80 * 100;
 
