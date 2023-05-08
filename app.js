@@ -1,10 +1,11 @@
 let gameContract;
 
 async function isFreePlayEligible() {
-  const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
-  const account = accounts[0];
-  const freePlayUsed = await gameContract.methods.freePlayUsed(account).call();
-  return !freePlayUsed;
+	const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+	const account = accounts[0];
+	const freePlayUsed = await gameContract.methods.freePlayUsed(account).call();
+	const freePlaysEnabled = await gameContract.methods.freePlaysEnabled().call();
+	return !freePlayUsed && freePlaysEnabled;
 }
 
 async function updatePlayButtonText() {
@@ -14,10 +15,15 @@ async function updatePlayButtonText() {
   playButton.color = "#0F9D58";
 }
 
-async function updatePlayButtonText(winner, connectedWallet) {
+async function updatePlayButtonText(winner, connectedWallet, blocksToGo) {
 	const isEligible = await isFreePlayEligible();
 	const playButton = document.getElementById('playButton');
-	playButton.innerText = isEligible ? '1 FREE PLAY' : 'PLAY 0.0069 ETH';
+	if( blocksToGo < 0) {
+		playButton.innerText = isEligible ? 'Start Game (Free)' : 'Start Game (.0069)';
+	} else {
+		playButton.innerText = isEligible ? '1 FREE PLAY' : 'PLAY 0.0069 ETH';
+	}	
+	
   
 	// Change the button color to green if the connected wallet is not the winner
 	if (winner.toLowerCase() == connectedWallet.toLowerCase()) {
@@ -32,8 +38,8 @@ function updateWinnerText(winnerAddress, connectedAddress, winnerElement) {
 		winnerElement.style.color = '#0F9D58';
 		winnerElement.textContent = 'You';
 	} else {
-		winnerElement.textContent = winnerAddress;
-		winnerElement.style.color = '#1DA1F2';
+		winnerElement.textContent = winnerAddress.substring(0, 7);
+		winnerElement.style.color = '#DB4437';
 	}
   }
 
@@ -42,9 +48,13 @@ async function playGame() {
   const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
   const account = accounts[0];
   const isEligible = await isFreePlayEligible();
-  const playAmount = isEligible ? '0' : web3.utils.toWei('.0069', 'ether');
+  const playAmount = isEligible ? '0' : web3.utils.toWei('0.0069', 'ether');
 
-  await gameContract.methods.play().send({ from: account, value: playAmount });
+  if (isEligible) {
+    await gameContract.methods.freePlay().send({ from: account });
+  } else {
+    await gameContract.methods.play().send({ from: account, value: playAmount });
+  }
 }
 
 window.addEventListener('load', async () => {
@@ -62,6 +72,27 @@ window.addEventListener('load', async () => {
   }
 
   const gameAbi = [
+	{
+		"inputs": [],
+		"name": "freePlay",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "play",
+		"outputs": [],
+		"stateMutability": "payable",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "renounceOwnership",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
 	{
 		"inputs": [],
 		"stateMutability": "nonpayable",
@@ -85,6 +116,39 @@ window.addEventListener('load', async () => {
 		],
 		"name": "OwnershipTransferred",
 		"type": "event"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "_daoAddress",
+				"type": "address"
+			}
+		],
+		"name": "setDaoAddress",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "toggleFreePlays",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
+	},
+	{
+		"inputs": [
+			{
+				"internalType": "address",
+				"name": "newOwner",
+				"type": "address"
+			}
+		],
+		"name": "transferOwnership",
+		"outputs": [],
+		"stateMutability": "nonpayable",
+		"type": "function"
 	},
 	{
 		"inputs": [],
@@ -127,12 +191,25 @@ window.addEventListener('load', async () => {
 	},
 	{
 		"inputs": [],
-		"name": "firstPlayBlock",
+		"name": "endGameMet",
 		"outputs": [
 			{
-				"internalType": "uint256",
+				"internalType": "bool",
 				"name": "",
-				"type": "uint256"
+				"type": "bool"
+			}
+		],
+		"stateMutability": "view",
+		"type": "function"
+	},
+	{
+		"inputs": [],
+		"name": "freePlaysEnabled",
+		"outputs": [
+			{
+				"internalType": "bool",
+				"name": "",
+				"type": "bool"
 			}
 		],
 		"stateMutability": "view",
@@ -147,19 +224,6 @@ window.addEventListener('load', async () => {
 			}
 		],
 		"name": "freePlayUsed",
-		"outputs": [
-			{
-				"internalType": "bool",
-				"name": "",
-				"type": "bool"
-			}
-		],
-		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "freePlaysEnabled",
 		"outputs": [
 			{
 				"internalType": "bool",
@@ -211,7 +275,7 @@ window.addEventListener('load', async () => {
 	},
 	{
 		"inputs": [],
-		"name": "numPlayers",
+		"name": "numPlays",
 		"outputs": [
 			{
 				"internalType": "uint256",
@@ -233,13 +297,6 @@ window.addEventListener('load', async () => {
 			}
 		],
 		"stateMutability": "view",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "play",
-		"outputs": [],
-		"stateMutability": "payable",
 		"type": "function"
 	},
 	{
@@ -276,46 +333,19 @@ window.addEventListener('load', async () => {
 	},
 	{
 		"inputs": [],
-		"name": "renounceOwnership",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
+		"name": "startBlock",
+		"outputs": [
 			{
-				"internalType": "address",
-				"name": "_daoAddress",
-				"type": "address"
+				"internalType": "uint256",
+				"name": "",
+				"type": "uint256"
 			}
 		],
-		"name": "setDaoAddress",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [],
-		"name": "toggleFreePlays",
-		"outputs": [],
-		"stateMutability": "nonpayable",
-		"type": "function"
-	},
-	{
-		"inputs": [
-			{
-				"internalType": "address",
-				"name": "newOwner",
-				"type": "address"
-			}
-		],
-		"name": "transferOwnership",
-		"outputs": [],
-		"stateMutability": "nonpayable",
+		"stateMutability": "view",
 		"type": "function"
 	}
 ];
-const gameContractAddress = '0x5796878a6b27d7d1C980824936Ab6D61A8304467';
+const gameContractAddress = '0xC4a0962e4978B1E89EC151845401aFDBb43f86Ff';
 gameContract = new web3.eth.Contract(gameAbi, gameContractAddress);
 
 const winnerElement = document.getElementById('winner');
@@ -341,12 +371,12 @@ setInterval(async () => {
 	const currentBlock = await web3.eth.getBlockNumber();
 	const blockTarget = await gameContract.methods.blockTarget().call();
 	const pot = await gameContract.methods.pot().call();
-	const firstPlayBlock = await gameContract.methods.firstPlayBlock().call();
+	const startBlock = await gameContract.methods.startBlock().call();
 	const lastBlockPlayed = await gameContract.methods.lastBlockPlayed().call();
 	const lastWin = await gameContract.methods.lastWin().call();
 	const lastPot = await gameContract.methods.lastPot().call();
     // Call updatePlayButtonText() when the page loads
-	updatePlayButtonText(currentWinner, connectedAddress);
+	updatePlayButtonText(currentWinner, connectedAddress, blocksToGo);
 	updateWinnerText(currentWinner, connectedAddress, winnerElement);
 
 	// Add an event listener for account changes
@@ -354,30 +384,33 @@ setInterval(async () => {
 	  updatePlayButtonText();
   	});
 
+	blockElement.textContent = currentBlock;
 
-
-  const currentInterval = getBlockInterval(currentBlock - firstPlayBlock);
-  const blocksToNextInterval = firstPlayBlock + (currentInterval * 10) - currentBlock;
+  const currentInterval = getBlockInterval(currentBlock - startBlock);
+  const blocksToNextInterval = startBlock + (currentInterval * 10) - currentBlock;
   const blocksToWin = blockTarget - currentBlock;
-  const targetProgress = ((121 - blocksToWin) / (120)) * 100;
-  console.log(blocksToWin);
-  console.log(blockTarget - lastBlockPlayed);
-  console.log(currentInterval);
-  const thresholdProgress = ((currentBlock - firstPlayBlock) % 1000) / 999 * 100;
+  const targetProgress = ((80 - blocksToWin) / (80)) * 100;
+  const thresholdProgress = ((currentBlock - startBlock) % 80) / 80 * 100;
 
   if (lastWin.toLowerCase() === connectedAddress.toLowerCase()) {
 	lastWinnerElement.style.color = '#F4B400';
 	lastWinnerElement.textContent = 'You';
 	} else {
-		lastWinnerElement.textContent = lastWin;
+		lastWinnerElement.textContent = lastWin.substring(0, 7);
 		lastWinnerElement.style.color = '#F4B400';
 	}
 
   lastPotElement.textContent = (web3.utils.fromWei(lastPot, 'ether') * 1).toFixed(3);
 
-  blockElement.textContent = currentBlock;
-  blocksToGoElement.textContent = blocksToWin;
-  currentPeriodElement.textContent = (currentBlock - firstPlayBlock);
+  
+
+  if (blocksToWin < 0){
+	blocksToGoElement.textContent = '0';
+  } else {
+	blocksToGoElement.textContent = blocksToWin;
+  }
+  
+  currentPeriodElement.textContent = (currentBlock - startBlock);
   targetElement.textContent = blockTarget;
   potElement.textContent = (web3.utils.fromWei(pot, 'ether') * 0.777).toFixed(3);
 
@@ -393,16 +426,16 @@ setInterval(async () => {
     blockElement.style.color = '#0F9D58';
     winnerElement.style.color = '#0F9D58';
   } else {
-    blockElement.style.color = '#1DA1F2';
+    blockElement.style.color = '#fff';
   }
 }, 1000);
 
 function getBlockInterval(blocksSinceStart) {
-  if (blocksSinceStart < 1000) return 120;
-  if (blocksSinceStart < 2000) return 45;
-  if (blocksSinceStart < 3000) return 15;
-  if (blocksSinceStart < 4000) return 5;
-  return 2;
+  if (blocksSinceStart < 500) return 80;
+  if (blocksSinceStart < 1000) return 40;
+  if (blocksSinceStart < 1500) return 20;
+  if (blocksSinceStart < 2000) return 10;
+  return 5;
 }
 });
 
