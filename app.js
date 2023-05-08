@@ -345,7 +345,7 @@ window.addEventListener('load', async () => {
 		"type": "function"
 	}
 ];
-const gameContractAddress = '0xC4a0962e4978B1E89EC151845401aFDBb43f86Ff';
+const gameContractAddress = '0x9483A130E6a6E7fA18a14B2661Bdb2772e5AEA5A';
 gameContract = new web3.eth.Contract(gameAbi, gameContractAddress);
 
 const winnerElement = document.getElementById('winner');
