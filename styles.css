@@ -64,6 +64,33 @@ button:hover {
 
 }
 
+.winner {
+  color: goldenrod;
+}
+
+header {
+  position: relative;
+  display: flex;
+  justify-content: center; /* Centers the main header text */
+  align-items: center;
+  padding: 20px 40px; /* Adjust padding as needed */
+  background: #33333300; /* Optional: background color */
+  color: white; /* Optional: text color */
+  flex-direction: column; /* Stacks the items vertically */
+}
+
+.wallet-address {
+  font-family: 'Press Start 2P', cursive;
+  font-size: 0.8rem; /* Adjust font size as needed */
+  position: absolute;
+  right: 20px; /* Position from the right edge */
+  top: 10px; /* Position from the top edge */
+}
+
+h1 {
+  margin: 0;
+  padding: 10px 0; /* Provides space above and below */
+}
 
 .progress {
   height: 100%;
