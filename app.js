@@ -451,8 +451,9 @@ async function playGame() {
     // If already connecting, return to avoid multiple connection attempts
     if (isConnecting) {
         return;
-    }
-    if (await ethereum.request({ method: 'net_version' }) != "0x27bc86aa"){
+    }  
+    var chainId = await ethereum.request({ method: 'net_version' })
+    if (chainId !== '0x27bc86aa' && chainId !== '666666666'){
         await connectToProvider();
     }
 
@@ -518,12 +519,12 @@ async function connectToProvider() {
             console.log(chainId);
 
             // Check if the connected chain ID is 0x27bc86aa
-            if (chainId !== '0x27bc86aa') {
+            if (chainId !== '0x27bc86aa' && chainId !== '666666666') {
                 console.error('Please connect to Degen Chain');
                 await ethereum.request({
                     method: 'wallet_switchEthereumChain',
                     params: [{ chainId: '0x27bc86aa' }],
-                 })
+                });
                 return;
             }
 
