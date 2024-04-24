@@ -452,7 +452,7 @@ async function playGame() {
     if (isConnecting) {
         return;
     }
-    if (await ethereum.request({ method: 'net_version' }) != "0x27bc86aa"){
+    if (await ethereum.request({ method: 'net_version' }) != "0x27bc86aa" || "666666666"){
         await connectToProvider();
     }
 
@@ -505,38 +505,43 @@ async function playGame() {
 }
 
 async function connectToProvider() {
-    console.log("Connecting to Provider")
+    console.log("Connecting to Provider");
     if (window.ethereum) {
         window.web3 = new Web3(ethereum);
         try {
-            // Requesting user accounts
-            accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+            const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
             console.log(accounts);
 
-            // Get the current chain ID
-            const chainId = await ethereum.request({ method: 'net_version' });
+            let chainId;
+            try {
+                chainId = await ethereum.request({ method: 'eth_chainId' }); // Returns hex string, e.g., "0x1"
+            } catch (error) {
+                console.warn("eth_chainId method not supported, using net_version");
+                chainId = await ethereum.request({ method: 'net_version' }); // Returns a numeric string, e.g., "1"
+            }
+
             console.log(chainId);
 
-            // Check if the connected chain ID is 0x27bc86aa
-            if (chainId !== '0x27bc86aa') {
+            // Convert hex chainId to a decimal if necessary and compare
+            const chainIdDecimal = parseInt(chainId, 16);
+            const isDegenChain = chainId === '0x27bc86aa' || chainId === '666666666' || chainIdDecimal === 666666666;
+
+            if (!isDegenChain) {
                 console.error('Please connect to Degen Chain');
                 await ethereum.request({
                     method: 'wallet_switchEthereumChain',
-                    params: [{ chainId: '0x27bc86aa' }],
-                 })
+                    params: [{ chainId: '0x27bc86aa' }], // Assuming 0x27bc86aa is the hex equivalent of the chain you want to switch to
+                })
                 return;
             }
 
-            // User is connected to the correct chain, continue with the application logic
             connectedAddress = accounts[0];
             updateDisplayedAddress(connectedAddress);
             ethereum.on('accountsChanged', handleAccountsChanged);
-            
+
         } catch (error) {
             console.error('User denied account access or an error occurred:', error);
         }
-    } else if (window.web3) {
-        window.web3 = new Web3(web3.currentProvider);
     } else {
         console.error('No web3 instance detected');
     }
