@@ -155,7 +155,7 @@ const gameAbi = [
                 "type": "bool"
             }
         ],
-        "stateMutability": "nonpayable",
+        "stateMutability": "view",
         "type": "function"
     },
     {
@@ -287,7 +287,7 @@ const gameAbi = [
         "inputs": [],
         "name": "restartGame",
         "outputs": [],
-        "stateMutability": "nonpayable",
+        "stateMutability": "payable",
         "type": "function"
     },
     {
@@ -335,11 +335,24 @@ const gameAbi = [
         "outputs": [],
         "stateMutability": "nonpayable",
         "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "winnerPaid",
+        "outputs": [
+            {
+                "internalType": "bool",
+                "name": "",
+                "type": "bool"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
     }
 ];
 
 //Primary Contract and Base Block Information
-const gameContractAddress = '0x577d4673Db5C9a2C0200D4562FCA66B3F2F0f3E6';
+const gameContractAddress = '0x4d9Ef8693C276d98D1B13894d65688856Cc0DC13';
 const baseProvider = new Web3('https://mainnet.base.org');
 const degenProvider = new Web3('https://rpc.degen.tips');
 gameContract = new degenProvider.eth.Contract(gameAbi, gameContractAddress);
@@ -365,6 +378,7 @@ const timeEstElement = document.getElementById('timeEst');
 
 var blockTimer;
 var currentWinner;
+let provider;
 
 // Check Free Plays for Connected User
 async function isFreePlayEligible() {
@@ -384,8 +398,12 @@ async function updatePlayButtonText(blocksToGo, winnerAddr) {
             playButton.innerText = 'CONNECT TO PLAY';
         } else if(connectedAddress.toLowerCase() === winnerAddr.toLowerCase()){
             playButton.innerText = 'COLLECT WINNINGS';
-        } else {
-            console.log("Game Over")
+        } else if(winnerAddr === "0x0000000000000000000000000000000000000000"){
+            console.log("Start Game")
+		    playButton.innerText = 'START GAME';
+        }
+        else {
+            console.log("GAME OVER")
 		    playButton.innerText = 'GAME OVER';
         }
         
@@ -417,7 +435,7 @@ function updateWinnerText(winnerAddress, winnerElement) {
     else{
         if (winnerAddress.toLowerCase() === connectedAddress.toLowerCase()) {
 		
-		winnerElement.textContent = 'You';
+		winnerElement.textContent = '🎩YOU';
 	}   else {
         winnerElement.textContent = winnerAddress.substring(0, 6);
 		winnerElement.classList.add("green-text");	
@@ -458,8 +476,12 @@ async function playGame() {
         }
         return
     }
-    const provider = new Web3(window.ethereum);
-    gameWriteContract = new provider.eth.Contract(gameAbi, gameContractAddress);
+    if (provider == undefined) {
+        provider = new Web3(window.ethereum);
+        gameWriteContract = new provider.eth.Contract(gameAbi, gameContractAddress);
+    }
+    
+    
 
     // If connected, proceed with contract calls
     try {
@@ -626,7 +648,7 @@ setInterval(async () => {
     } else {
         getBlockInterval(startBlock, currentBlock);
         blocksToGoElement.textContent = blockTimer;
-        timeEstElement.textContent = "(" + String(formatTime(blocksToWin)) + ")";
+        timeEstElement.textContent = "(~" + String(formatTime(blockTimer)) + ")";
         
     }
     
