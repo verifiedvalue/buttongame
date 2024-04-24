@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Smart Contract White Paper</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 0;
+            padding: 0;
+        }
+        .container {
+            max-width: 1000px;
+            margin: auto;
+            padding: 20px;
+        }
+        h1, h2, h3 {
+            margin-top: 0;
+        }
+        code {
+            background-color: #f4f4f4;
+            padding: 5px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Button Game v1.0</h1>
+
+        <h2>Introduction</h2>
+        <p>
+            This document outlines the functionality and design of the <strong>ButtonGamev1</strong> smart contract.
+            The contract is designed to facilitate an onchain game to give away <strong>$DEGEN</strong>. The last player to press the button wins the pot.
+        </p>
+
+        <h2>Game Overview</h2>
+        <p>
+            <strong>ButtonGamev1</strong> uses multiple onchain variables to determine the game state, game progress, and endgame handling. 
+            All game variables are handled by the contract.  
+            All gameplay is dependent on confirmed transactions.
+        </p>
+
+        <h2>Contract Variables</h2>
+        <p>
+            <strong>pot</strong>: Stores the current value of the game pot.<br>
+            <strong>startBlock</strong>: Stores the block number when the game starts.<br>
+            <strong>blockTarget</strong>: Stores the target block number to determine the end of the game.<br>
+            <strong>lastBlockPlayed</strong>: Stores the block number when the last button press occurred.<br>
+            <strong>freePlaysUsed</strong>: Tracks the number of free plays used.<br>
+            <strong>numPlays</strong>: Tracks the total number of plays.<br>
+            <strong>daoAddress</strong>: Stores the address of the DAO managing the contract.<br>
+            <strong>currentWinner</strong>: Stores the address of the current game winner.<br>
+            <strong>freePlayUsed</strong>: Tracks whether a player has used a free play.<br>
+            <strong>endGameMet</strong>: Indicates whether the end game condition is met.<br>
+            <strong>freePlaysEnabled</strong>: Indicates whether free plays are enabled.<br>
+            <strong>playEnabled</strong>: Indicates whether the game is enabled.<br>
+        </p>
+
+        <!-- More details about contract functions, events, etc. can be added here -->
+
+        <h2>Gameplay</h2>
+        <p>
+            <p>There are a few key values when it comes to ButtonGame.</p>
+            <p><strong>1. The Pot: </strong>The current contract account balance. This will be transferred to the winner if the block target is reached.</p> 
+            <p><strong>2. The Block Target: </strong>The block target is set based on the block number of the last confirmed button press. This means the block target is reset with each button press.</p> 
+            <p><strong>3. The Current Winner: </strong>This is the current last player to press the button. If the block target is reached before another confirmed button press is recorded, this player will win the pot.</p> 
+            
+            
+        </p>
+    </div>
+</body>
+</html>

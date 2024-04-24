@@ -1,14 +1,14 @@
 body {
-  background-color: #485054; /* Light gray */
-  color: #fff; /* Dark gray */
+  background-color: #491A74; /* Light gray */
+  color: #ffffff; /* Dark gray */
   font-family: 'Press Start 2P', cursive;
   text-align: center;
 }
 
 h1 {
   font-size: 4.5em;
-  margin-top: 10px;
-  color: #DB4437;
+  margin-top: 25px;
+  color: #ffffff;
   outline: #485054;
   outline-width: 5px;
 }
@@ -20,42 +20,48 @@ p {
 }
 
 span {
-  color: #0F9D58; /* Google Red */
+  color: #80C423; /* Google Red */
 }
 
 button {
   font-family: 'Press Start 2P', cursive;
-  font-size: 1.5em;
-  background-color: #0F9D58; /* Google Blue */
-  color: #fff; /* White */
+  font-size: 2em;
+  background-color: #721CB8; /* Google Blue */
+  color: #ffffff; /* White */
   border: 0;
   padding: 30px 60px;
   cursor: pointer;
-  outline-width: 5px;
-  outline-style: solid;
-  outline-color: #fff;
-  margin-top: 40px;
+  margin-top: 75px;
+  margin-bottom: 20px;
 }
 
 button:hover {
-  background-color: #F4B400; /* Google Green */
+  background-color: #80C423;
+
 }
 
 .winner-button {
-  background-color: #DB4437;
+  background-color: #000000;
 }
 
 .progress-bar {
   width: 100%;
   height: 50px;
-  background-color: #ffffff; /* Change this color to your desired color for the progress bar background */
+  background-color: #8f8f8f; /* Change this color to your desired color for the progress bar background */
   margin-bottom: 0px;
   overflow: hidden;
 }
 
 .markings {
-  color: #0F9D58;
+  color: #721CB8;
  /* Change this color to your desired color for the markings text */
+}
+
+.currentReset {
+  color: #80C423;
+  border: 2px solid #80C423; /* Add a border around the text */
+  padding: 5px; /* Add some padding to the text */
+
 }
 
 
@@ -67,31 +73,38 @@ button:hover {
 }
 
 #target-progress {
-  background-color: #0F9D58; /* Google Green */
+  background-color: #80C423; /* Google Green */
 }
 
 
 .green-text {
-  color: #0F9D58;
+  color: #80C423;
 }
 
-.bottom-section {
-  position: fixed;
-  left: 0;
-  bottom: 0;
-  width: 100%;
-  text-align: center;
-  padding: 10px 0;
-  background-color: #485054;
-  color: #F4B400;
+.top-hat-list {
+  list-style-type: none;
+  padding-left: 0;
+  display: inline-block;
+  text-align: left;
 }
 
-.how-it-works p {
-  color: #fff;
-  margin-bottom: 1%;
-  padding-left: 1em;
-  text-indent: -1em;
+.top-hat-icon {
+  font-size: 2em; /* Adjust the size of the top hat icon */
+  margin-right: 5px; /* Add some spacing between the top hat icon and the text */
 }
+
+.top-hat-list li {
+  margin-bottom: 8px; /* Adjust the spacing as needed */
+}
+
+.list-text {
+  font-size: 1em;
+  color: white; /* Adjust the font size of the text */
+}
+
+
+
+
 
 
 
