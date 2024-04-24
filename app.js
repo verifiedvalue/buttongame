@@ -428,23 +428,21 @@ async function updatePlayButtonText(blocksToGo, winnerAddr) {
 
 //Update Winner Address Display
 function updateWinnerText(winnerAddress, winnerElement) {
-	if (connectedAddress == null){
-        winnerElement.textContent = winnerAddress.substring(0, 7);
-		winnerElement.classList.add("green-text");
+	if (connectedAddress === undefined){
+        winnerElement.textContent = winnerAddress.substring(0, 8);
+		winnerElement.classList.add("winner");
     }
     else{
         if (winnerAddress.toLowerCase() === connectedAddress.toLowerCase()) {
 		
 		winnerElement.textContent = '🎩YOU';
+        winnerElement.classList.add("green-text");
 	}   else {
         winnerElement.textContent = winnerAddress.substring(0, 6);
 		winnerElement.classList.add("green-text");	
 	}
     }
-    if(blockTimer < 0){
-        currentElement.textContent = "WINNER: " + winnerAddress.substring(0, 6);
-        currentElement.style.color = "#80C423";
-    }
+
 
   }
 
@@ -454,7 +452,7 @@ async function playGame() {
     if (isConnecting) {
         return;
     }
-    if (await ethereum.request({ method: 'eth_chainId' }) != "0x27bc86aa"){
+    if (await ethereum.request({ method: 'net_version' }) != "0x27bc86aa"){
         await connectToProvider();
     }
 
@@ -516,7 +514,7 @@ async function connectToProvider() {
             console.log(accounts);
 
             // Get the current chain ID
-            const chainId = await ethereum.request({ method: 'eth_chainId' });
+            const chainId = await ethereum.request({ method: 'net_version' });
             console.log(chainId);
 
             // Check if the connected chain ID is 0x27bc86aa
@@ -531,7 +529,7 @@ async function connectToProvider() {
 
             // User is connected to the correct chain, continue with the application logic
             connectedAddress = accounts[0];
-            
+            updateDisplayedAddress(connectedAddress);
             ethereum.on('accountsChanged', handleAccountsChanged);
             
         } catch (error) {
@@ -559,6 +557,15 @@ async function handleAccountsChanged() {
     }
     
 }
+
+function updateDisplayedAddress(address) {
+    const walletAddressDiv = document.getElementById('walletAddress');
+    if (address) {
+      walletAddressDiv.textContent = `Connected: ${address.substring(0, 6)}`;
+    } else {
+      walletAddressDiv.textContent = 'Not Connected';
+    }
+  }
 
 function formatTime(blocksToWin){
     seconds = Number(blocksToWin)*2;
