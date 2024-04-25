@@ -492,7 +492,7 @@ async function playGame() {
         const isEligible = await isFreePlayEligible();
         const playAmount = isEligible ? '0' : provider.utils.toWei('1', 'ether');
 
-        if (blockTimer < 0 && connectedAddress.toLowerCase() === currentWinner.toLowerCase()){
+        if (blockTimer < -8 && connectedAddress.toLowerCase() === currentWinner.toLowerCase()){
             console.log("Paying Winner");
             await gameWriteContract.methods.payWinner().send({ from: connectedAddress });
         } else {
@@ -558,6 +558,7 @@ async function handleAccountsChanged() {
         console.log("Handling Account Change");
         if (accounts[0] != connectedAddress){
             connectedAddress = accounts[0];
+            updateDisplayedAddress(connectedAddress);
             console.log("Updating Account:", accounts[0]);
         }
                
@@ -669,7 +670,7 @@ setInterval(async () => {
 
     //Update Calculated Values
     blockTimer = blockTarget - currentBlock;
-    targetProgress = ((300 - blockTimer) / (300)) * 100;
+    targetProgress = ((300 - blockTimer + 8) / (300)) * 100;
   	
     // Call Update Functions when the page loads
 	updatePlayButtonText(blockTimer, currentWinner);
@@ -685,7 +686,7 @@ setInterval(async () => {
 
     } else {
         getBlockInterval(startBlock, currentBlock);
-        blocksToGoElement.textContent = blockTimer;
+        blocksToGoElement.textContent = blockTimer + 8;
         timeEstElement.textContent = "(~" + String(formatTime(blockTimer)) + ")";
         
     }
