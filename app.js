@@ -438,8 +438,8 @@ function updateWinnerText(winnerAddress, winnerElement) {
 		winnerElement.textContent = '🎩YOU';
         winnerElement.classList.add("green-text");
 	}   else {
-        winnerElement.textContent = winnerAddress.substring(0, 6);
-		winnerElement.classList.add("green-text");	
+        winnerElement.textContent = winnerAddress.substring(0, 8);
+		winnerElement.classList.add("winner");
 	}
     }
 

@@ -17,19 +17,22 @@
   </header>
   
   
-  <p style="font-size: 2.2em; padding-top: 1%; padding-bottom: 1%; color: #80C423;">LAST DEGEN TO PRESS THE BUTTON WINS</p>
-  <div style="text-align: center;">
-    <ul class="top-hat-list">
-      <li><span class="top-hat-icon">🎩</span> <span class="list-text">THE GAME ENDS WHEN THE BLOCK TIMER HITS ZERO</span></li>
-      <li><span class="top-hat-icon">🎩</span> <span class="list-text">EACH BUTTON PRESS RESETS THE BLOCK TIMER</span></li>
-      <li><span class="top-hat-icon">🎩</span> <span class="list-text">BLOCK TIMER RESET IS REDUCED EVERY 500 BLOCKS</span></li>
-      <li><span class="top-hat-icon">🎩</span> <span class="list-text">POT IS PAID TO THE WINNER WHEN THE GAME ENDS</span></li>
-    </ul>
-  </div>
-  
+    <p style="font-size: 2.2em; padding-top: 1%; padding-bottom: 1%; color: #80C423;">LAST DEGEN TO PRESS THE BUTTON WINS</p>
+    <div style="text-align: center;">
+      <ul class="top-hat-list">
+        <li><span class="top-hat-icon">🎩</span> <span class="list-text">THE GAME ENDS WHEN THE BLOCK TIMER HITS ZERO</span></li>
+        <li><span class="top-hat-icon">🎩</span> <span class="list-text">EACH BUTTON PRESS RESETS THE BLOCK TIMER</span></li>
+        <li><span class="top-hat-icon">🎩</span> <span class="list-text">BLOCK TIMER RESET IS REDUCED EVERY 500 BLOCKS</span></li>
+        <li><span class="top-hat-icon">🎩</span> <span class="list-text">POT IS PAID TO THE WINNER WHEN THE GAME ENDS</span></li>
+      </ul>
+    </div>
+    
+    <div class="gameBox">
+    <p id="current" style="font-size: 2em; padding-top: 10px;">CURRENT WINNER: <span id="winner"></span></p>
+    <p style="font-size: 3em;">POT: <span id="pot"></span></p>
+    </div>
 
-  <p id="current" style="font-size: 2em; padding-top: 10px;">CURRENT WINNER: <span id="winner"></span></p>
-  <p style="font-size: 3em;">POT: <span id="pot"></span></p>
+  
   <button id="playButton" onclick="playGame()">LOADING GAME</button>
   <!-- <p style="padding: 10px; text-align: center;"><span id="connectStatus" style="color: #721CB8;"></span></p> -->
 
