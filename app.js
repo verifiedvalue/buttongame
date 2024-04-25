@@ -483,6 +483,11 @@ async function playGame() {
     
 
     // If connected, proceed with contract calls
+    const blockTarget = gameContract.methods.blockTarget().call();
+    if (blockTarget != 0 && blockTimer < 0 && connectedAddress.toLowerCase() !== currentWinner.toLowerCase()) {
+        showError("Game is Over");
+        return
+    }
     try {
         const isEligible = await isFreePlayEligible();
         const playAmount = isEligible ? '0' : provider.utils.toWei('1', 'ether');
@@ -521,6 +526,7 @@ async function connectToProvider() {
             // Check if the connected chain ID is 0x27bc86aa
             if (chainId !== '0x27bc86aa' && chainId !== '666666666') {
                 console.error('Please connect to Degen Chain');
+                showError("Please Connect to Degen Chain");
                 await ethereum.request({
                     method: 'wallet_switchEthereumChain',
                     params: [{ chainId: '0x27bc86aa' }],
@@ -573,6 +579,30 @@ function formatTime(blocksToWin){
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
     return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
+}
+
+// Get the modal
+var modal = document.getElementById("errorModal");
+
+// Get the <span> element that closes the modal
+var closeButton = document.getElementsByClassName("close-button")[0];
+
+// When the user clicks on the button, open the modal 
+function showError(message) {
+    document.getElementById("errorMessage").textContent = message;
+    modal.style.display = "block";
+}
+
+// When the user clicks on <span> (x), close the modal
+closeButton.onclick = function() {
+    modal.style.display = "none";
+}
+
+// When the user clicks anywhere outside of the modal, close it
+window.onclick = function(event) {
+    if (event.target == modal) {
+        modal.style.display = "none";
+    }
 }
 
 function getBlockInterval(startBlock, currentBlock) {
