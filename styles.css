@@ -1,9 +1,12 @@
 /* General Styles */
 body {
-  background-color: #491A74; /* Originally commented as Light gray but it's a dark purple */
+  background-color: #491A74;
   color: #ffffff;
   font-family: 'Press Start 2P', cursive;
   text-align: center;
+  background-image: repeat-x url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Ctext y='50%25' x='50%25' dominant-baseline='middle' text-anchor='middle' style='font-size:32px;'%3E🎩%3C/text%3E%3C/svg%3E");
+  background-size: 100px auto; /* Adjust size and spacing of emojis */
+  animation: scrollEmoji 10s linear infinite; /* Adjust speed */
 }
 
 h1 {
@@ -37,6 +40,23 @@ button:hover {
 button:active {
   transform: translateY(10px); /* Moves the button down mimicking a press */
   box-shadow: 0 5px #659a1b; /* Reduces shadow size to enhance the pressed effect */
+}
+
+#errorButton {
+  padding: 8px 16px; /* Smaller padding */
+  background-color: #721CB8; /* Red color for error actions */
+  color: #ffffff;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  display: block; /* Allows centering */
+  margin: 20px auto; /* Top and bottom margin with auto horizontal margins for centering */
+  font-size: 0.9em; /* Smaller font size */
+}
+
+#errorButton:hover {
+  background-color: #af1aff; /* Darker shade on hover */
+  box-shadow: 0 0px #590D82; /* Slightly larger shadow for more depth */
 }
 
 /* Text Elements */
@@ -113,6 +133,7 @@ header {
   width: 50%;
   box-shadow: 0 4px 8px 0 rgba(255, 255, 255, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19);
   animation: animatetop 0.4s;
+  text-align: center; /* Center aligns all content including the button */
 }
 
 .close-button {
@@ -143,4 +164,27 @@ header {
 .top-hat-icon {
   font-size: 2em;
   margin-right: 5px;
+}
+
+@keyframes colorChange {
+  0% {
+      background-color: #491A74; /* Start color */
+  }
+  50% {
+      background-color: #6625a2; /* Mid-transition color */
+  }
+  100% {
+      background-color: #491A74; /* End color, can loop back to start */
+  }
+}
+
+
+
+@keyframes scrollEmoji {
+  0% {
+      background-position: 0% 0%;
+  }
+  100% {
+      background-position: 100% 0%;
+  }
 }

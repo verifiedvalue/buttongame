@@ -375,6 +375,7 @@ const thresholdProgressElement = document.getElementById('threshold-progress');
 const resetProgressElement = document.getElementById('reset-progress');
 const resetProgElement = document.getElementById('resetProg');
 const timeEstElement = document.getElementById('timeEst');
+const bodyElement = document.body;
 
 var blockTimer;
 var currentWinner;
@@ -448,6 +449,7 @@ function updateWinnerText(winnerAddress, winnerElement) {
 
 //Connected User Called Play Function, init contract call tx
 async function playGame() {
+    
     // If already connecting, return to avoid multiple connection attempts
     if (isConnecting) {
         return;
@@ -481,7 +483,13 @@ async function playGame() {
     }
     
     
-
+    const weiBalance = await degenProvider.eth.getBalance(connectedAddress);
+    const balance = await degenProvider.utils.fromWei(weiBalance, 'ether');
+    console.log(balance);
+    if(balance <= 0){
+        showError("You don't have any bridged degen!", true, 'https://bridge.degen.tips/', 'Official Bridge ⤴');
+        return;
+    }
     // If connected, proceed with contract calls
     const blockTarget = gameContract.methods.blockTarget().call();
     if (blockTarget != 0 && blockTimer < 0 && connectedAddress.toLowerCase() !== currentWinner.toLowerCase()) {
@@ -491,7 +499,7 @@ async function playGame() {
     try {
         const isEligible = await isFreePlayEligible();
         const playAmount = isEligible ? '0' : provider.utils.toWei('1', 'ether');
-
+        
         if (blockTimer < -8 && connectedAddress.toLowerCase() === currentWinner.toLowerCase()){
             console.log("Paying Winner");
             await gameWriteContract.methods.payWinner().send({ from: connectedAddress });
@@ -526,7 +534,7 @@ async function connectToProvider() {
             // Check if the connected chain ID is 0x27bc86aa
             if (chainId !== '0x27bc86aa' && chainId !== '666666666') {
                 console.error('Please connect to Degen Chain');
-                showError("Please Connect to Degen Chain");
+                showError("Please Connect to Degen Chain", false, '');
                 await ethereum.request({
                     method: 'wallet_switchEthereumChain',
                     params: [{ chainId: '0x27bc86aa' }],
@@ -535,6 +543,7 @@ async function connectToProvider() {
             }
 
             // User is connected to the correct chain, continue with the application logic
+            bodyElement.style.animationPlayState = 'running';
             connectedAddress = accounts[0];
             updateDisplayedAddress(connectedAddress);
             ethereum.on('accountsChanged', handleAccountsChanged);
@@ -589,9 +598,32 @@ var modal = document.getElementById("errorModal");
 var closeButton = document.getElementsByClassName("close-button")[0];
 
 // When the user clicks on the button, open the modal 
-function showError(message) {
-    document.getElementById("errorMessage").textContent = message;
-    modal.style.display = "block";
+function showError(message, shouldRedirect = false, redirectUrl = '', buttonText = 'Click Here') {
+    const modal = document.getElementById('errorModal');
+    const errorMessage = document.getElementById('errorMessage');
+    const errorButton = document.getElementById('errorButton');
+
+    // Set the error message
+    errorMessage.textContent = message;
+
+    // Configure the button if redirection is needed
+    if (shouldRedirect) {
+        errorButton.textContent = buttonText; // Set custom button text
+        errorButton.style.display = 'inline-block'; // Show the button
+        errorButton.onclick = function() { // Set the redirect action
+            window.open(redirectUrl, '_blank');
+        };
+    } else {
+        errorButton.style.display = 'none'; // Hide the button if not needed
+    }
+
+    // Show the modal
+    modal.style.display = 'block';
+
+    // Add event listener for closing the modal
+    document.querySelector('.close-button').onclick = function() {
+        modal.style.display = 'none';
+    };
 }
 
 // When the user clicks on <span> (x), close the modal
