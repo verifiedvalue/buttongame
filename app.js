@@ -551,6 +551,7 @@ async function connectToProvider() {
             // User is connected to the correct chain, continue with the application logic
             connectedAddress = accounts[0];
             const ensName = await ethProvider.lookupAddress(connectedAddress);
+            console.log("ENS Name: ", ensName);
             updatePlayButtonText(blockTimer, currentWinner);
             if (ensName != null){
                 updateDisplayedAddress(ensName);
@@ -583,7 +584,7 @@ async function handleAccountsChanged() {
             connectedAddress = accounts[0];
             updatePlayButtonText(blockTimer, currentWinner);
             const ensName = await ethProvider.lookupAddress(connectedAddress);
-            
+            console.log("ensName: ", ensName);
             if (ensName != null){
                 updateDisplayedAddress(ensName);
             } else {
@@ -722,6 +723,7 @@ window.addEventListener('load', async () => {
     updatePlayButtonText(blockTimer, currentWinner);
     updateWinnerText(await getEns(currentWinner), winnerElement);
     potElement.textContent = (potValue.toFixed(1)) + "  DEGEN";
+
 
 setInterval(async () => {
 	//console.log(connectedAddress);
