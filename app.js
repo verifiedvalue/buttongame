@@ -440,7 +440,7 @@ function updateWinnerText(winnerAddress, winnerElement) {
 		winnerElement.classList.add("winner");
     }
     else{
-        if (winnerAddress.toLowerCase() === connectedAddress.toLowerCase()) {
+        if (currentWinner.toLowerCase() === connectedAddress.toLowerCase()) {
 		
 		winnerElement.textContent = '🎩YOU';
         winnerElement.classList.add("green-text");
@@ -551,7 +551,7 @@ async function connectToProvider() {
             // User is connected to the correct chain, continue with the application logic
             connectedAddress = accounts[0];
             const ensName = await ethProvider.lookupAddress(connectedAddress);
-            
+            updatePlayButtonText(blockTimer, currentWinner);
             if (ensName != null){
                 updateDisplayedAddress(ensName);
             } else {
@@ -581,6 +581,7 @@ async function handleAccountsChanged() {
         console.log("Handling Account Change");
         if (accounts[0] != connectedAddress){
             connectedAddress = accounts[0];
+            updatePlayButtonText(blockTimer, currentWinner);
             const ensName = await ethProvider.lookupAddress(connectedAddress);
             
             if (ensName != null){
@@ -609,6 +610,16 @@ function formatTime(blocksToWin){
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
     return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
+}
+
+async function getEns (address) {
+    const ensName = await ethProvider.lookupAddress(address);
+    if (ensName != null){
+        return ensName;
+    } else {
+        return address.substring(0, 8);
+    }
+
 }
 
 // Get the modal
@@ -708,40 +719,33 @@ window.addEventListener('load', async () => {
     blockTimer = blockTarget - currentBlock;
     var targetProgress = ((300 - blockTimer) / (300)) * 100;
     var potValue = parseFloat(baseProvider.utils.fromWei(pot, 'ether'));
+    updatePlayButtonText(blockTimer, currentWinner);
+    updateWinnerText(await getEns(currentWinner), winnerElement);
+    potElement.textContent = (potValue.toFixed(1)) + "  DEGEN";
 
 setInterval(async () => {
-	console.log(connectedAddress);
+	//console.log(connectedAddress);
     //Update Game Vars
-    currentWinner = await gameContract.methods.currentWinner().call();
-	currentBlock = await baseProvider.eth.getBlockNumber();
-	blockTarget = await gameContract.methods.blockTarget().call();
-	pot = await gameContract.methods.pot().call();
+    var newBlock = await gameContract.methods.blockTarget().call();
+    var newPot = await gameContract.methods.pot().call();
+
+    if (newPot !== pot || newBlock !== blockTarget){
+        //Update the page when change to game state
+        currentWinner = await gameContract.methods.currentWinner().call();
+        pot = newPot
+        blockTarget = newBlock
+        //ENS Name
+        updateWinnerText(getEns(currentWinner), winnerElement);
+    } 
+
+    //Update the timer every time
+    currentBlock = await baseProvider.eth.getBlockNumber();
+    blockTimer = blockTarget - currentBlock;
+	targetProgress = ((300 - blockTimer + 8) / (300)) * 100;
+	
 
     //Delete after testing
     startBlock = await gameContract.methods.startBlock().call();
-
-
-    //Update Calculated Values
-    blockTimer = blockTarget - currentBlock;
-    targetProgress = ((300 - blockTimer + 8) / (300)) * 100;
-  	
-    // Call Update Functions when the page loads
-	updatePlayButtonText(blockTimer, currentWinner);
-	
-
-    //ENS Name
-    const ensNameWin = await ethProvider.lookupAddress(currentWinner);
-    if (ensNameWin != null){
-        updateWinnerText(ensNameWin, winnerElement);
-    } else {
-        updateWinnerText(currentWinner.substring(0, 8), winnerElement);
-    }
-
-    
-            
-            
-    
-    
 
     //Additional Game Stats
 	//blockElement.textContent = currentBlock;
