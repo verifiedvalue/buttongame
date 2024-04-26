@@ -355,11 +355,14 @@ const gameAbi = [
 const gameContractAddress = '0x4d9Ef8693C276d98D1B13894d65688856Cc0DC13';
 const baseProvider = new Web3('https://mainnet.base.org');
 const degenProvider = new Web3('https://rpc.degen.tips');
+const ethProvider = new ethers.providers.JsonRpcProvider('https://eth-mainnet.public.blastapi.io');
+console.log(ethProvider);
 gameContract = new degenProvider.eth.Contract(gameAbi, gameContractAddress);
 
 let connectedAddress;
 let accounts;
 let isConnecting = false;
+let ensNamesEnabled = false;
 
 //Dynamic Page Elements
 const connectedElement = document.getElementById('connectStatus');
@@ -375,11 +378,13 @@ const thresholdProgressElement = document.getElementById('threshold-progress');
 const resetProgressElement = document.getElementById('reset-progress');
 const resetProgElement = document.getElementById('resetProg');
 const timeEstElement = document.getElementById('timeEst');
+const toggleSwitch = document.getElementById('toggleSwitch');
 const bodyElement = document.body;
 
 var blockTimer;
 var currentWinner;
 let provider;
+
 
 // Check Free Plays for Connected User
 async function isFreePlayEligible() {
@@ -429,8 +434,9 @@ async function updatePlayButtonText(blocksToGo, winnerAddr) {
 
 //Update Winner Address Display
 function updateWinnerText(winnerAddress, winnerElement) {
+    
 	if (connectedAddress === undefined){
-        winnerElement.textContent = winnerAddress.substring(0, 8);
+        winnerElement.textContent = winnerAddress;
 		winnerElement.classList.add("winner");
     }
     else{
@@ -439,7 +445,7 @@ function updateWinnerText(winnerAddress, winnerElement) {
 		winnerElement.textContent = '🎩YOU';
         winnerElement.classList.add("green-text");
 	}   else {
-        winnerElement.textContent = winnerAddress.substring(0, 8);
+        winnerElement.textContent = winnerAddress;
 		winnerElement.classList.add("winner");
 	}
     }
@@ -543,9 +549,17 @@ async function connectToProvider() {
             }
 
             // User is connected to the correct chain, continue with the application logic
-            bodyElement.style.animationPlayState = 'running';
             connectedAddress = accounts[0];
-            updateDisplayedAddress(connectedAddress);
+            const ensName = await ethProvider.lookupAddress(connectedAddress);
+            
+            if (ensName != null){
+                updateDisplayedAddress(ensName);
+            } else {
+                updateDisplayedAddress(connectedAddress.substring(0, 6));
+            }
+
+
+            
             ethereum.on('accountsChanged', handleAccountsChanged);
             
         } catch (error) {
@@ -567,7 +581,13 @@ async function handleAccountsChanged() {
         console.log("Handling Account Change");
         if (accounts[0] != connectedAddress){
             connectedAddress = accounts[0];
-            updateDisplayedAddress(connectedAddress);
+            const ensName = await ethProvider.lookupAddress(connectedAddress);
+            
+            if (ensName != null){
+                updateDisplayedAddress(ensName);
+            } else {
+                updateDisplayedAddress(connectedAddress.substring(0, 6));
+            }
             console.log("Updating Account:", accounts[0]);
         }
                
@@ -578,7 +598,7 @@ async function handleAccountsChanged() {
 function updateDisplayedAddress(address) {
     const walletAddressDiv = document.getElementById('walletAddress');
     if (address) {
-      walletAddressDiv.textContent = `Connected: ${address.substring(0, 6)}`;
+      walletAddressDiv.textContent = `Connected: ${address}`;
     } else {
       walletAddressDiv.textContent = 'Not Connected';
     }
@@ -637,6 +657,7 @@ window.onclick = function(event) {
         modal.style.display = "none";
     }
 }
+
 
 function getBlockInterval(startBlock, currentBlock) {
     if (currentBlock - startBlock < 500) {
@@ -706,7 +727,19 @@ setInterval(async () => {
   	
     // Call Update Functions when the page loads
 	updatePlayButtonText(blockTimer, currentWinner);
-	updateWinnerText(currentWinner, winnerElement);
+	
+
+    //ENS Name
+    const ensNameWin = await ethProvider.lookupAddress(currentWinner);
+    if (ensNameWin != null){
+        updateWinnerText(ensNameWin, winnerElement);
+    } else {
+        updateWinnerText(currentWinner.substring(0, 8), winnerElement);
+    }
+
+    
+            
+            
     
     
 
@@ -731,7 +764,7 @@ setInterval(async () => {
     potElement.textContent = (potValue.toFixed(1)) + "  DEGEN";
 
 
-}, 1000);
+}, 2000);
 
 
 
