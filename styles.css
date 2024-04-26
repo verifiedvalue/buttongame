@@ -100,6 +100,14 @@ p, .markings, .list-text {
   overflow: hidden;
 }
 
+.progress{
+  width: 0%;  /* Start from 0 to see changes */
+  background-color: #4CAF50; /* Ensure it's visible */
+  height: 100%;
+  transition: width .5s ease-in-out; /* Noticeable slow transition */
+}
+
+
 /* Header and Footer */
 header {
   position: relative;
@@ -257,4 +265,9 @@ input:checked + .slider:before {
   padding: 10px;  /* Adds some padding around the elements */
   box-sizing: border-box;  /* Includes padding in width calculation */
   /* Optional: adds a background color to the top bar */
+}
+
+.signature{
+  font-size: 1em;
+  color: #6625a2;
 }

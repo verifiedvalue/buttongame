@@ -6,13 +6,16 @@
   <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
   <script src="https://cdn.jsdelivr.net/npm/web3@1.5.2/dist/web3.min.js"></script>
-  <script src="https://cdn.ethers.io/lib/ethers-5.6.umd.min.js" type="application/javascript"></script>
-
+  <script src="https://cdn.ethers.io/lib/ethers-5.2.umd.min.js"
+  type="application/javascript"></script>
   <script defer src="app.js"></script>
 </head>
 <body>
   <div class="top-bar">  <!-- Flex container for alignment -->
     <div id="walletAddress" class="wallet-address">Not Connected</div>
+    <a href="https://warpcast.com/cobsy.eth" target="_blank">
+      <div class="signature">cobsy.eth was here</div>
+  </a>
 </div>
   <header>
 
@@ -23,15 +26,14 @@
     <p style="font-size: 2.2em; padding-top: 1%; padding-bottom: 1%; color: #80C423;">LAST DEGEN TO PRESS THE BUTTON WINS</p>
     <div style="text-align: center;">
       <ul class="top-hat-list">
-        <li><span class="top-hat-icon">🎩</span> <span class="list-text">THE GAME ENDS WHEN THE BLOCK TIMER HITS ZERO</span></li>
-        <li><span class="top-hat-icon">🎩</span> <span class="list-text">EACH BUTTON PRESS RESETS THE BLOCK TIMER</span></li>
-        <li><span class="top-hat-icon">🎩</span> <span class="list-text">BLOCK TIMER RESET IS REDUCED EVERY 500 BLOCKS</span></li>
+        <li><span class="top-hat-icon">🎩</span> <span class="list-text">THE GAME ENDS WHEN THE BLOCK COUNTDOWN HITS ZERO</span></li>
+        <li><span class="top-hat-icon">🎩</span> <span class="list-text">EACH BUTTON PRESS RESETS THE BLOCK COUNTDOWN</span></li>
         <li><span class="top-hat-icon">🎩</span> <span class="list-text">POT IS PAID TO THE WINNER WHEN THE GAME ENDS</span></li>
       </ul>
     </div>
     
     <div class="gameBox">
-    <p id="current" style="font-size: 2em; padding-top: 10px;">CURRENT WINNER: <span id="winner"></span></p>
+    <p id="current" style="font-size: 2em; padding-top: 10px;">LAST DEGEN: <span id="winner"></span></p>
     <p style="font-size: 3em;">POT: <span id="pot"></span></p>
     </div>
 
@@ -45,22 +47,18 @@
     <div class="progress-bar">
       <div class="progress" id="target-progress"></div>
     </div>
-    <div class="progressReset">
-      <div class="progress" id="reset-progress"></div>
-    </div>
-    <div style="position: relative; margin-top: 5px; background-color: white;">
+    <!-- <div style="position: relative; margin-top: 5px; background-color: white;">
       <span id="300" class="markings" style="position: absolute; left: 0%;">300</span>
       <span id="200" class="markings" style="position: absolute; left: 34%; transform: translateX(-25%);">200</span>
       <span id="100" class="markings" style="position: absolute; left: 66%; transform: translateX(-25%);">100</span>
       <span id="50" class="markings" style="position: absolute; left: 84%; transform: translateX(-25%);">50</span>
       <span id="25" class="markings" style="position: absolute; left: 92%; transform: translateX(-25%);">25</span>
-    </div>
+    </div> -->
     
     <!-- <p style="padding-top: 10%;">FINAL BLOCK: <span id="target"></span></p>
     <p>LAST CONFIRMED BLOCK: <span id="block"></span></p>
     <p>BLOCKS FROM START: <span id="currentPeriod"></span></p> -->
-    <p style="padding: 50px; text-align: center;">BLOCKS TO TIMER REDUCTION: <span id="resetProg"></span></p>
-    
+
   </div>
   <p style="font-size: 1em; padding-top: 0%;">90% OF BUTTON PRESS FEE IS ADDED TO THE POT. 10% TO CREATOR</p>
   <footer style="background-color: #f4f4f400; padding-top: 50px; text-align: center;">

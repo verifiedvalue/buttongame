@@ -61,6 +61,25 @@ const gameAbi = [
         "type": "function"
     },
     {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "freeAddress",
+                "type": "address"
+            }
+        ],
+        "name": "checkFreePlay",
+        "outputs": [
+            {
+                "internalType": "bool",
+                "name": "isFreePlay",
+                "type": "bool"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
         "inputs": [],
         "name": "creatorWallet",
         "outputs": [
@@ -147,38 +166,30 @@ const gameAbi = [
     },
     {
         "inputs": [],
+        "name": "getAllPlayerStats",
+        "outputs": [
+            {
+                "internalType": "address[]",
+                "name": "",
+                "type": "address[]"
+            },
+            {
+                "internalType": "uint256[]",
+                "name": "",
+                "type": "uint256[]"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
         "name": "isEndGameMet",
         "outputs": [
             {
                 "internalType": "bool",
                 "name": "",
                 "type": "bool"
-            }
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "lastBlockPlayed",
-        "outputs": [
-            {
-                "internalType": "uint256",
-                "name": "",
-                "type": "uint256"
-            }
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "numPlays",
-        "outputs": [
-            {
-                "internalType": "uint256",
-                "name": "",
-                "type": "uint256"
             }
         ],
         "stateMutability": "view",
@@ -199,9 +210,15 @@ const gameAbi = [
     },
     {
         "inputs": [],
-        "name": "pauseGame",
-        "outputs": [],
-        "stateMutability": "nonpayable",
+        "name": "paidPlays",
+        "outputs": [
+            {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+            }
+        ],
+        "stateMutability": "view",
         "type": "function"
     },
     {
@@ -232,6 +249,25 @@ const gameAbi = [
         "type": "function"
     },
     {
+        "inputs": [
+            {
+                "internalType": "address",
+                "name": "",
+                "type": "address"
+            }
+        ],
+        "name": "playCount",
+        "outputs": [
+            {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
         "inputs": [],
         "name": "playEnabled",
         "outputs": [
@@ -252,7 +288,7 @@ const gameAbi = [
                 "type": "uint256"
             }
         ],
-        "name": "players",
+        "name": "playerAddresses",
         "outputs": [
             {
                 "internalType": "address",
@@ -291,13 +327,6 @@ const gameAbi = [
         "type": "function"
     },
     {
-        "inputs": [],
-        "name": "resumeGame",
-        "outputs": [],
-        "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
         "inputs": [
             {
                 "internalType": "address",
@@ -308,19 +337,6 @@ const gameAbi = [
         "name": "setCreatorWallet",
         "outputs": [],
         "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "startBlock",
-        "outputs": [
-            {
-                "internalType": "uint256",
-                "name": "",
-                "type": "uint256"
-            }
-        ],
-        "stateMutability": "view",
         "type": "function"
     },
     {
@@ -352,7 +368,7 @@ const gameAbi = [
 ];
 
 //Primary Contract and Base Block Information
-const gameContractAddress = '0x4d9Ef8693C276d98D1B13894d65688856Cc0DC13';
+const gameContractAddress = '0xEf2f32eF173E4266BE9be187aD6017E12d4b2E52';
 const baseProvider = new Web3('https://mainnet.base.org');
 const degenProvider = new Web3('https://rpc.degen.tips');
 const ethProvider = new ethers.providers.JsonRpcProvider('https://eth-mainnet.public.blastapi.io');
@@ -384,16 +400,13 @@ const bodyElement = document.body;
 var blockTimer;
 var currentWinner;
 let provider;
+var chainId;
 
 
 // Check Free Plays for Connected User
 async function isFreePlayEligible() {
+	return await gameContract.methods.checkFreePlay(connectedAddress).call();
 
-	const freePlayUsed = await gameContract.methods.freePlayUsed(connectedAddress).call();
-    const freePlaysUsed = await gameContract.methods.freePlaysUsed().call();
-    console.log(freePlaysUsed);
-    //const freePlaysCount = await gameContract.methods.freePlaysUsed().call();
-	return !freePlayUsed && freePlaysUsed < 69;
 }
 
 //Change Play Button Text depending on Free Play or Game Over
@@ -422,6 +435,7 @@ async function updatePlayButtonText(blocksToGo, winnerAddr) {
     }
     else {
         const isEligible = await isFreePlayEligible();
+        console.log(isEligible);
 	    const playButton = document.getElementById('playButton');
 		playButton.innerText = isEligible ? '1 FREE PLAY' : 'PLAY 1 DEGEN';
 	}	
@@ -456,50 +470,39 @@ function updateWinnerText(winnerAddress, winnerElement) {
 //Connected User Called Play Function, init contract call tx
 async function playGame() {
     
-    // If already connecting, return to avoid multiple connection attempts
-    if (isConnecting) {
-        return;
-    }  
-    var chainId = await ethereum.request({ method: 'net_version' })
-    if (chainId !== '0x27bc86aa' && chainId !== '666666666'){
-        await connectToProvider();
+    if(!connectedAddress) {
+        console.log("No Connection");
+        return connectToProvider();
     }
 
-    // If not connected, initiate connection
-    if (!connectedAddress) {
-        isConnecting = true;
-        try {
-            await connectToProvider();
-            isConnecting = false;
-            // Check if still not connected after attempting to connect
-            if (!connectedAddress) {
-                console.error('Could not connect to Ethereum provider');
-                return;
-            }
-        } catch (error) {
-            isConnecting = false;
-            console.error('Error connecting to Ethereum provider:', error);
-            return;
-        }
-        return
-    }
     if (provider == undefined) {
         provider = new Web3(window.ethereum);
         gameWriteContract = new provider.eth.Contract(gameAbi, gameContractAddress);
     }
     
-    
-    const weiBalance = await degenProvider.eth.getBalance(connectedAddress);
-    const balance = await degenProvider.utils.fromWei(weiBalance, 'ether');
+    const network = await ethereum.request({ method: 'net_version' });
+    if(network !== '0x27bc86aa' && network !== '666666666'){
+        return connectToProvider();
+        
+    }
+    const balance = await degenProvider.eth.getBalance(connectedAddress);
+    const gameState = await gameContract.methods.playEnabled().call();
+    console.log(gameState);
     console.log(balance);
     if(balance <= 0){
         showError("You don't have any bridged degen!", true, 'https://bridge.degen.tips/', 'Official Bridge ⤴');
         return;
     }
+
+    if(!gameState){
+        showError("Game has not started");
+        return;
+    }
     // If connected, proceed with contract calls
-    const blockTarget = gameContract.methods.blockTarget().call();
-    if (blockTarget != 0 && blockTimer < 0 && connectedAddress.toLowerCase() !== currentWinner.toLowerCase()) {
-        showError("Game is Over");
+    const blockTarget = await gameContract.methods.blockTarget().call();
+    console.log(blockTarget);
+    if (blockTarget != 0 && blockTimer < -8 && connectedAddress.toLowerCase() !== currentWinner.toLowerCase()) {
+        showError("Game is over");
         return
     }
     try {
@@ -534,7 +537,7 @@ async function connectToProvider() {
             console.log(accounts);
 
             // Get the current chain ID
-            const chainId = await ethereum.request({ method: 'net_version' });
+            chainId = await ethereum.request({ method: 'net_version' });
             console.log(chainId);
 
             // Check if the connected chain ID is 0x27bc86aa
@@ -545,7 +548,7 @@ async function connectToProvider() {
                     method: 'wallet_switchEthereumChain',
                     params: [{ chainId: '0x27bc86aa' }],
                 });
-                return;
+                
             }
 
             // User is connected to the correct chain, continue with the application logic
@@ -583,7 +586,8 @@ async function handleAccountsChanged() {
         if (accounts[0] != connectedAddress){
             connectedAddress = accounts[0];
             updatePlayButtonText(blockTimer, currentWinner);
-            const ensName = await ethProvider.lookupAddress(connectedAddress);
+            updateWinnerText(currentWinner.substring(0, 6), winnerElement);
+            const ensName = await getEns(connectedAddress);
             console.log("ensName: ", ensName);
             if (ensName != null){
                 updateDisplayedAddress(ensName);
@@ -621,6 +625,34 @@ async function getEns (address) {
         return address.substring(0, 8);
     }
 
+}
+
+async function displayTopPlayers() {
+    try {
+        // Call the getAllPlayerStats function from the smart contract
+        const [addresses, counts] = await gameContract.methods.getAllPlayerStats().call();
+
+        // Combine addresses and counts into a single array of objects
+        let players = addresses.map((address, index) => ({
+            address: address,
+            plays: counts[index]
+        }));
+
+        // Sort players by the number of plays in descending order
+        players.sort((a, b) => b.plays - a.plays);
+
+        // Select the top 10 players
+        const topPlayers = players.slice(0, 10);
+
+        // Display the top 10 players
+        console.log("Top 10 Players:");
+        topPlayers.forEach((player, index) => {
+            console.log(`${index + 1}. Address: ${player.address}, Plays: ${player.plays}`);
+        });
+
+    } catch (error) {
+        console.error("Failed to fetch or process player data:", error);
+    }
 }
 
 // Get the modal
@@ -671,44 +703,44 @@ window.onclick = function(event) {
 }
 
 
-function getBlockInterval(startBlock, currentBlock) {
-    if (currentBlock - startBlock < 500) {
-      var marking = document.getElementById("300");
-      marking.classList.add("currentReset"); // Set color
-      resetProgElement.textContent = (currentBlock - 500 - startBlock)*-1;
-      return 300;
-    }
-    if (currentBlock - startBlock < 1000) {
-      var remove = document.getElementById("300");
-      remove.classList.remove("currentReset");
-      var marking = document.getElementById("200");
-      marking.classList.add("currentReset"); // Set color
-      resetProgElement.textContent = (currentBlock - 1000 - startBlock)*-1;
-      return 200;
-    }
-    if (currentBlock - startBlock < 1500) {
-      var remove = document.getElementById("200");
-      remove.classList.remove("currentReset");
-      var marking = document.getElementById("100");
-      marking.classList.add("currentReset"); // Set color
-      resetProgElement.textContent = (currentBlock - 1500 - startBlock)*-1;
-      return 100;
-    }
-    if (currentBlock - startBlock < 2000) {
-      var remove = document.getElementById("100");
-      remove.classList.remove("currentReset");
-      var marking = document.getElementById("50");
-      marking.classList.add("currentReset"); // Set color
-      resetProgElement.textContent = (currentBlock- 2000 - startBlock)*-1;
-      return 50;
-    }
-    var marking = document.getElementById("25");
-    var remove = document.getElementById("50");
-    remove.classList.remove("currentReset");
-    marking.classList.add("currentReset"); // Set color
-    resetProgElement.textContent = "Overtime";
-    return 25;
-  }
+// function getBlockInterval(startBlock, currentBlock) {
+//     if (currentBlock - startBlock < 500) {
+//       var marking = document.getElementById("300");
+//       marking.classList.add("currentReset"); // Set color
+//       resetProgElement.textContent = (currentBlock - 500 - startBlock)*-1;
+//       return 300;
+//     }
+//     if (currentBlock - startBlock < 1000) {
+//       var remove = document.getElementById("300");
+//       remove.classList.remove("currentReset");
+//       var marking = document.getElementById("200");
+//       marking.classList.add("currentReset"); // Set color
+//       resetProgElement.textContent = (currentBlock - 1000 - startBlock)*-1;
+//       return 200;
+//     }
+//     if (currentBlock - startBlock < 1500) {
+//       var remove = document.getElementById("200");
+//       remove.classList.remove("currentReset");
+//       var marking = document.getElementById("100");
+//       marking.classList.add("currentReset"); // Set color
+//       resetProgElement.textContent = (currentBlock - 1500 - startBlock)*-1;
+//       return 100;
+//     }
+//     if (currentBlock - startBlock < 2000) {
+//       var remove = document.getElementById("100");
+//       remove.classList.remove("currentReset");
+//       var marking = document.getElementById("50");
+//       marking.classList.add("currentReset"); // Set color
+//       resetProgElement.textContent = (currentBlock- 2000 - startBlock)*-1;
+//       return 50;
+//     }
+//     var marking = document.getElementById("25");
+//     var remove = document.getElementById("50");
+//     remove.classList.remove("currentReset");
+//     marking.classList.add("currentReset"); // Set color
+//     resetProgElement.textContent = "Overtime";
+//     return 25;
+//   }
 
 window.addEventListener('load', async () => {
     // Initialize Game Variables
@@ -716,17 +748,18 @@ window.addEventListener('load', async () => {
 	var currentBlock = await baseProvider.eth.getBlockNumber();
 	var blockTarget = await gameContract.methods.blockTarget().call();
 	var pot = await gameContract.methods.pot().call();
-	var startBlock = await gameContract.methods.startBlock().call();
     blockTimer = blockTarget - currentBlock;
-    var targetProgress = ((300 - blockTimer) / (300)) * 100;
+
+    var targetProgress = targetProgress = ((100 - blockTimer) / 100) * 100;
     var potValue = parseFloat(baseProvider.utils.fromWei(pot, 'ether'));
-    updatePlayButtonText(blockTimer, currentWinner);
     updateWinnerText(await getEns(currentWinner), winnerElement);
-    potElement.textContent = (potValue.toFixed(1)) + "  DEGEN";
+    potElement.textContent = (potValue.toFixed(0)) + "  DEGEN";
+    targetProgressElement.style.width = `${Math.max(0, Math.min(100, targetProgress))}%`;
+    updatePlayButtonText(blockTimer, currentWinner);
 
 
 setInterval(async () => {
-	//console.log(connectedAddress);
+
     //Update Game Vars
     var newBlock = await gameContract.methods.blockTarget().call();
     var newPot = await gameContract.methods.pot().call();
@@ -737,37 +770,39 @@ setInterval(async () => {
         pot = newPot
         blockTarget = newBlock
         //ENS Name
-        updateWinnerText(getEns(currentWinner), winnerElement);
+        updateWinnerText(await getEns(currentWinner), winnerElement);
     } 
 
     //Update the timer every time
     currentBlock = await baseProvider.eth.getBlockNumber();
     blockTimer = blockTarget - currentBlock;
-	targetProgress = ((300 - blockTimer + 8) / (300)) * 100;
-	
-
-    //Delete after testing
-    startBlock = await gameContract.methods.startBlock().call();
+	targetProgress = ((100 - blockTimer) / 100) * 100;
+    console.log(targetProgress);
+	await updatePlayButtonText(blockTimer, currentWinner);
+    updateWinnerText(await getEns(currentWinner), winnerElement);
 
     //Additional Game Stats
 	//blockElement.textContent = currentBlock;
     if (blockTimer < 0){
         blocksToGoElement.textContent = '0';
-        resetProgElement.textContent = "Game Over";
+        timeEstElement.textContent = '';
+        currentWinner = await gameContract.methods.currentWinner().call();
+        
 
     } else {
-        getBlockInterval(startBlock, currentBlock);
-        blocksToGoElement.textContent = blockTimer + 8;
+        //getBlockInterval(startBlock, currentBlock);
+        blocksToGoElement.textContent = blockTimer;
         timeEstElement.textContent = "(~" + String(formatTime(blockTimer)) + ")";
         
     }
     
     //Show Progress Bar
-    targetProgressElement.style.width = targetProgress + '%';
+    targetProgressElement.style.width = `${Math.max(0, Math.min(100, targetProgress))}%`;
+    console.log(targetProgressElement.style.width);
 
     //Format and Update Pot
     potValue = parseFloat(baseProvider.utils.fromWei(pot, 'ether'));
-    potElement.textContent = (potValue.toFixed(1)) + "  DEGEN";
+    potElement.textContent = (potValue.toFixed(0)) + "  DEGEN";
 
 
 }, 2000);
