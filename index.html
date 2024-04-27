@@ -26,9 +26,10 @@
     <p style="font-size: 2.2em; padding-top: 1%; padding-bottom: 1%; color: #80C423;">LAST DEGEN TO PRESS THE BUTTON WINS</p>
     <div style="text-align: center;">
       <ul class="top-hat-list">
-        <li><span class="top-hat-icon">🎩</span> <span class="list-text">THE GAME ENDS WHEN THE BLOCK COUNTDOWN HITS ZERO</span></li>
-        <li><span class="top-hat-icon">🎩</span> <span class="list-text">EACH BUTTON PRESS RESETS THE BLOCK COUNTDOWN</span></li>
-        <li><span class="top-hat-icon">🎩</span> <span class="list-text">POT IS PAID TO THE WINNER WHEN THE GAME ENDS</span></li>
+        <li><span class="top-hat-icon">🎩</span> <span class="list-text">THE GAME ENDS WHEN THE BLOCK COUNTDOWN REACHES ZERO</span></li>
+        <li><span class="top-hat-icon">🎩</span> <span class="list-text">THE BLOCK COUNT DOWN IS RESET WITH EACH BUTTON PRESS</span></li>
+        <li><span class="top-hat-icon">🎩</span> <span class="list-text">THE LAST DEGEN CAN CLAIM THE POT WHEN THE GAME ENDS</span></li>
+        <li><span class="top-hat-icon">🎩</span> <span class="list-text">PRESS THE BUTTON TO BECOME THE LAST DEGEN</span></li>
       </ul>
     </div>
     
@@ -43,10 +44,12 @@
 
   <div style="padding-top: 20px;">
     <p style="padding-bottom: 1%; "><span id="blocksToGo" style="color: #80C423;"></span> BLOCKS UNTIL WIN <span id="timeEst" style="color: #ffffff;"></span></p>
-    
-    <div class="progress-bar">
-      <div class="progress" id="target-progress"></div>
+    <div class="progress-container">
+      <div class="progress-bar">
+        <div class="progress" id="target-progress"></div>
+      </div>
     </div>
+    
     <!-- <div style="position: relative; margin-top: 5px; background-color: white;">
       <span id="300" class="markings" style="position: absolute; left: 0%;">300</span>
       <span id="200" class="markings" style="position: absolute; left: 34%; transform: translateX(-25%);">200</span>
@@ -62,7 +65,7 @@
   </div>
   <p style="font-size: 1em; padding-top: 0%;">90% OF BUTTON PRESS FEE IS ADDED TO THE POT. 10% TO CREATOR</p>
   <footer style="background-color: #f4f4f400; padding-top: 50px; text-align: center;">
-    <a style="color: white" href="https://bridge.degen.tips/" target="_blank">Degen Bridge</a> | <a style="color: white" href="https://warpcast.com/cobsy.eth" target="_blank">Warpcast</a> | <a style="color: white" href="https://explorer.degen.tips/address/0x4d9Ef8693C276d98D1B13894d65688856Cc0DC13" target="_blank">Contract</a> | <a style="color: white" href="whitepaper.html" target="_blank">Whitepaper</a>
+    <a style="color: white" href="https://bridge.degen.tips/" target="_blank">Degen Bridge</a> | <a style="color: white" href="https://warpcast.com/~/channel/degenchain" target="_blank">Warpcast</a> | <a style="color: white" href="https://explorer.degen.tips/address/0x4d9Ef8693C276d98D1B13894d65688856Cc0DC13" target="_blank">Contract</a> | <a style="color: white" href="whitepaper.html" target="_blank">Whitepaper</a>
   </footer>
   <!-- Error Pop-up Modal -->
   <div id="errorModal" class="modal">

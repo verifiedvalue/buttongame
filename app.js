@@ -405,18 +405,29 @@ var chainId;
 
 // Check Free Plays for Connected User
 async function isFreePlayEligible() {
+    console.log("before");
 	return await gameContract.methods.checkFreePlay(connectedAddress).call();
+    console.log("after");
 
 }
 
 //Change Play Button Text depending on Free Play or Game Over
 async function updatePlayButtonText(blocksToGo, winnerAddr) {
-    if( blocksToGo < 0) {
+    if( blocksToGo < -10) {
         
         if(connectedAddress === undefined) {
             playButton.innerText = 'CONNECT TO PLAY';
         } else if(connectedAddress.toLowerCase() === winnerAddr.toLowerCase()){
-            playButton.innerText = 'COLLECT WINNINGS';
+            if (await gameContract.methods.winnerPaid().call()){
+                console.log("Winner Paid: ");
+                console.log();
+                playButton.innerText = 'GAME OVER';
+            } else {
+                playButton.innerText = 'COLLECT WINNINGS';
+            }
+                
+            
+            
         } else if(winnerAddr === "0x0000000000000000000000000000000000000000"){
             console.log("Start Game")
 		    playButton.innerText = 'START GAME';
@@ -448,19 +459,25 @@ async function updatePlayButtonText(blocksToGo, winnerAddr) {
 
 //Update Winner Address Display
 function updateWinnerText(winnerAddress, winnerElement) {
-    
+
 	if (connectedAddress === undefined){
         winnerElement.textContent = winnerAddress;
 		winnerElement.classList.add("winner");
     }
-    else{
+    else {
         if (currentWinner.toLowerCase() === connectedAddress.toLowerCase()) {
+            winnerElement.classList.remove("winner");
+            winnerElement.classList.add("green-text");
+
+            if (winnerAddress.includes('.eth')){
+                winnerElement.textContent = '🎩' + winnerAddress;
+            } else {
+                winnerElement.textContent = '🎩YOU';
+            }
 		
-		winnerElement.textContent = '🎩YOU';
-        winnerElement.classList.add("green-text");
 	}   else {
-        winnerElement.textContent = winnerAddress;
-		winnerElement.classList.add("winner");
+            winnerElement.textContent = winnerAddress;
+            winnerElement.classList.add("winner");
 	}
     }
 
@@ -509,9 +526,16 @@ async function playGame() {
         const isEligible = await isFreePlayEligible();
         const playAmount = isEligible ? '0' : provider.utils.toWei('1', 'ether');
         
-        if (blockTimer < -8 && connectedAddress.toLowerCase() === currentWinner.toLowerCase()){
-            console.log("Paying Winner");
-            await gameWriteContract.methods.payWinner().send({ from: connectedAddress });
+        if (blockTimer < -10 && connectedAddress.toLowerCase() === currentWinner.toLowerCase()){
+            const winnerPaid = await gameContract.methods.winnerPaid().call();
+            if (!winnerPaid){
+                console.log("Paying Winner");
+                await gameWriteContract.methods.payWinner().send({ from: connectedAddress });
+            } else {
+                showError("Game is over");
+                return
+            }
+            
         } else {
             if (isEligible) {
                 await gameWriteContract.methods.freePlay().send({ from: connectedAddress });
@@ -545,6 +569,20 @@ async function connectToProvider() {
                 console.error('Please connect to Degen Chain');
                 showError("Please Connect to Degen Chain", false, '');
                 await ethereum.request({
+                    method: 'wallet_addEthereumChain',
+                    params: [{
+                        chainId: '0x27bc86aa', // Must be a hexadecimal number, e.g., '0x1' for Ethereum Mainnet
+                        chainName: 'Degen Network',
+                        nativeCurrency: {
+                            name: 'Degen',
+                            symbol: 'DEGEN', // Typically 2-4 characters
+                            decimals: 18
+                        },
+                        rpcUrls: ['https://rpc.degen.tips'], // The RPC URL for the network
+
+                    }],
+                });
+                await ethereum.request({
                     method: 'wallet_switchEthereumChain',
                     params: [{ chainId: '0x27bc86aa' }],
                 });
@@ -572,8 +610,13 @@ async function connectToProvider() {
     } else if (window.web3) {
         window.web3 = new Web3(web3.currentProvider);
     } else {
+        showError("You dont have a Web3 Wallet!", true, 'https://metamask.io/', 'Install Metamask ⤴') 
         console.error('No web3 instance detected');
     }
+}
+
+async function addDegenChain(){
+
 }
 
 async function handleAccountsChanged() {
@@ -619,6 +662,8 @@ function formatTime(blocksToWin){
 
 async function getEns (address) {
     const ensName = await ethProvider.lookupAddress(address);
+    console.log("got ens");
+    console.log(address);
     if (ensName != null){
         return ensName;
     } else {
@@ -754,6 +799,7 @@ window.addEventListener('load', async () => {
     var potValue = parseFloat(baseProvider.utils.fromWei(pot, 'ether'));
     updateWinnerText(await getEns(currentWinner), winnerElement);
     potElement.textContent = (potValue.toFixed(0)) + "  DEGEN";
+    blocksToGoElement.textContent = Math.max(0, Math.min(100, blockTimer));
     targetProgressElement.style.width = `${Math.max(0, Math.min(100, targetProgress))}%`;
     updatePlayButtonText(blockTimer, currentWinner);
 
@@ -770,7 +816,6 @@ setInterval(async () => {
         pot = newPot
         blockTarget = newBlock
         //ENS Name
-        updateWinnerText(await getEns(currentWinner), winnerElement);
     } 
 
     //Update the timer every time
