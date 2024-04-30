@@ -361,7 +361,6 @@ const gameAbi = [
 
 //Primary Contract and Base Block Information
 const gameContractAddress = '0x397a69F414F9675C30914fd755E32ca0819e60cf';
-const baseProvider = new Web3('https://mainnet.base.org');
 const degenProvider = new Web3('https://rpc.degen.tips');
 const ethProvider = new ethers.providers.JsonRpcProvider('https://eth-mainnet.public.blastapi.io');
 console.log(ethProvider);
@@ -801,14 +800,13 @@ window.onclick = function(event) {
 window.addEventListener('load', async () => {
     // Initialize Game Variables
 	currentWinner = await gameContract.methods.currentWinner().call();
-    var liveBaseBlock = await baseProvider.eth.getBlockNumber();
 	var currentBlock = await gameContract.methods.getBlock().call();
 	var blockTarget = await gameContract.methods.blockTarget().call();
 	var pot = await gameContract.methods.pot().call();
     blockTimer = blockTarget - currentBlock;
 
     var targetProgress = targetProgress = ((500 - blockTimer) / 500) * 100;
-    var potValue = parseFloat(baseProvider.utils.fromWei(pot, 'ether'));
+    var potValue = parseFloat(degenProvider.utils.fromWei(pot, 'ether'));
     updatePlayButtonText(blockTimer, currentWinner);
     updateWinnerText(await getEns(currentWinner), winnerElement);
     potElement.textContent = (potValue.toFixed(0)) + "  DEGEN";
@@ -833,11 +831,7 @@ setInterval(async () => {
 
     //Update the timer every time
     currentBlock = await gameContract.methods.getBlock().call();
-    liveBaseBlock = await baseProvider.eth.getBlockNumber();
     blockTimer = blockTarget - currentBlock;
-    console.log("Base Timer ", (blockTarget - (liveBaseBlock)));
-    console.log("Degen Timer ", blockTarget - currentBlock);
-    console.log("Timer Difference: ", (liveBaseBlock - currentBlock) );
 	targetProgress = ((500 - blockTimer) / 500) * 100;
 	await updatePlayButtonText(blockTimer, currentWinner);
     updateWinnerText(await getEns(currentWinner), winnerElement);
@@ -858,11 +852,11 @@ setInterval(async () => {
     }
     
     //Show Progress Bar
-    targetProgressElement.style.width = `${Math.max(0, Math.min(500, targetProgress))}%`;
+    targetProgressElement.style.width = `${Math.max(0, Math.min(100, targetProgress))}%`;
     console.log(targetProgressElement.style.width);
 
     //Format and Update Pot
-    potValue = parseFloat(baseProvider.utils.fromWei(pot, 'ether'));
+    potValue = parseFloat(degenProvider.utils.fromWei(pot, 'ether'));
     potElement.textContent = parseInt(potValue).toLocaleString() + " DEGEN";
     
 
