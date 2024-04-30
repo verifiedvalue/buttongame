@@ -363,7 +363,7 @@ const gameAbi = [
 const gameContractAddress = '0x397a69F414F9675C30914fd755E32ca0819e60cf';
 const degenProvider = new Web3('https://rpc.degen.tips');
 const ethProvider = new ethers.providers.JsonRpcProvider('https://eth-mainnet.public.blastapi.io');
-console.log(ethProvider);
+
 gameContract = new degenProvider.eth.Contract(gameAbi, gameContractAddress);
 
 let connectedAddress;
@@ -397,25 +397,20 @@ var chainId;
 
 // Check Free Plays for Connected User
 async function isFreePlayEligible() {
-    console.log("before");
 	return await gameContract.methods.checkFreePlay(connectedAddress).call();
-    console.log("after");
-
 }
 
 //Change Play Button Text depending on Free Play or Game Over
 async function updatePlayButtonText(blocksToGo, winnerAddr) {
     const isEndGame = await gameContract.methods.isEndGameMet().call();
     const isEnable = await gameContract.methods.playEnabled().call();
-    console.log("Game Over?:", isEndGame);
+
     if(isEndGame) {
         
         if(connectedAddress === undefined) {
             playButton.innerText = 'CONNECT TO PLAY';
         } else if(connectedAddress.toLowerCase() === winnerAddr.toLowerCase()){
             if (await gameContract.methods.winnerPaid().call()){
-                console.log("Winner Paid: ");
-                console.log();
                 playButton.innerText = 'GAME OVER';
             } else {
                 playButton.innerText = 'COLLECT POT';
@@ -424,7 +419,6 @@ async function updatePlayButtonText(blocksToGo, winnerAddr) {
             
             
         } else {
-            console.log("GAME OVER")
 		    playButton.innerText = 'GAME OVER';
         }
         
@@ -434,7 +428,6 @@ async function updatePlayButtonText(blocksToGo, winnerAddr) {
         return
     } else if (winnerAddr === "0x0000000000000000000000000000000000000000"){
         if (isEnable){
-            console.log("Start Game")
             playButton.innerText = 'START GAME';
         } else {
             playButton.innerText = 'SOON';
@@ -444,7 +437,6 @@ async function updatePlayButtonText(blocksToGo, winnerAddr) {
     
     else {
         const isEligible = await isFreePlayEligible();
-        console.log(isEligible);
 	    const playButton = document.getElementById('playButton');
 		playButton.innerText = isEligible ? '1 FREE PLAY' : 'PLAY 1 DEGEN';
 	}	
@@ -490,7 +482,6 @@ function updateWinnerText(winnerAddress, winnerElement) {
 async function playGame() {
     // Ensure there is a connection
     if (!connectedAddress) {
-        console.log("No Connection");
         return connectToProvider();
     }
 
@@ -526,7 +517,7 @@ async function playGame() {
     if (endGameMet && isCurrentWinner) {
         const winnerPaid = await gameWriteContract.methods.winnerPaid().call();
         if (!winnerPaid) {
-            console.log("Paying Winner");
+
             await gameWriteContract.methods.payWinner().send({ from: connectedAddress })
             .on('transactionHash', hash => {
                 console.log('Transaction hash:', hash);
@@ -592,17 +583,14 @@ async function playGame() {
 
 
 async function connectToProvider() {
-    console.log("Connecting to Provider")
     if (window.ethereum) {
         window.web3 = new Web3(ethereum);
         try {
             // Requesting user accounts
             accounts = await ethereum.request({ method: 'eth_requestAccounts' });
-            console.log(accounts);
 
             // Get the current chain ID
             chainId = await ethereum.request({ method: 'net_version' });
-            console.log(chainId);
 
             // Check if the connected chain ID is 0x27bc86aa
             if (chainId !== '0x27bc86aa' && chainId !== '666666666') {
@@ -632,7 +620,6 @@ async function connectToProvider() {
             // User is connected to the correct chain, continue with the application logic
             connectedAddress = accounts[0];
             const ensName = await ethProvider.lookupAddress(connectedAddress);
-            console.log("ENS Name: ", ensName);
             updatePlayButtonText(blockTimer, currentWinner);
             if (ensName != null){
                 updateDisplayedAddress(ensName);
@@ -658,8 +645,7 @@ async function connectToProvider() {
 
 async function handleAccountsChanged() {
     if (connectedAddress == undefined) {
-        console.log('Please connect to an Ethereum wallet');
-    
+        return;
     } else {
         accounts = await ethereum.request({ method: 'eth_requestAccounts' });
         console.log("Handling Account Change");
@@ -668,13 +654,11 @@ async function handleAccountsChanged() {
             updatePlayButtonText(blockTimer, currentWinner);
             updateWinnerText(currentWinner.substring(0, 8), winnerElement);
             const ensName = await getEns(connectedAddress);
-            console.log("ensName: ", ensName);
             if (ensName != null){
                 updateDisplayedAddress(ensName);
             } else {
                 updateDisplayedAddress(connectedAddress.substring(0, 6));
             }
-            console.log("Updating Account:", accounts[0]);
         }
                
     }
@@ -699,8 +683,7 @@ function formatTime(blocksToWin) {
 
 async function getEns (address) {
     const ensName = await ethProvider.lookupAddress(address);
-    console.log("got ens");
-    console.log(address);
+
     if (ensName != null){
         return ensName;
     } else {
@@ -853,13 +836,10 @@ setInterval(async () => {
     
     //Show Progress Bar
     targetProgressElement.style.width = `${Math.max(0, Math.min(100, targetProgress))}%`;
-    console.log(targetProgressElement.style.width);
 
     //Format and Update Pot
     potValue = parseFloat(degenProvider.utils.fromWei(pot, 'ether'));
     potElement.textContent = parseInt(potValue).toLocaleString() + " DEGEN";
-    
-
 
 }, 1000);
 
