@@ -150,8 +150,8 @@ footer {
 
 footer a {
   color: white;                /* Ensures links are white */
-  text-decoration: none;       /* Removes underline from links */
-  padding: 0 10px;             /* Adds padding to each link for better clickability and spacing */
+  padding: 0 10px;
+  text-decoration: underline;          /* Adds padding to each link for better clickability and spacing */
 }
 
 /* Modals and Pop-ups */
