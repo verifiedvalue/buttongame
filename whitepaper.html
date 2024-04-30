@@ -32,7 +32,7 @@
 
         <h2>Introduction</h2>
         <p>
-            <strong>ButtonGamev1</strong> is an onchain game designed to give away <strong>200k $DEGEN</strong> where the last player to press the button wins. There is a small fee to press the button. This fee is added to the giveaway pot.
+            <strong>ButtonGamev1</strong> is an onchain game where the last player to press the button wins. There is a small fee to press the button. This fee is added to the giveaway pot. The pot will have a starting value of <strong>200k $DEGEN</strong>.
         </p>
 
         <h2>Game Overview</h2>
@@ -45,9 +45,9 @@
         <h2>Key Contract Variables</h2>
         <p>
             <strong>pot</strong>: Stores the current value of the pot.<br>
-            <strong>blockTarget</strong>: Stores the target block number to determine the end of the game.<br>
-            <strong>currentWinner</strong>: Stores the address of the current game winner.<br>
-            <strong>endGameMet</strong>: Indicates whether the end game condition is met.<br>
+            <strong>blockTarget</strong>: Sets the last block of the countdown timer.<br>
+            <strong>currentWinner</strong>: Stores the address of the last player to press the button.<br>
+            <strong>isEndGameMet()</strong>: Determines if the end game condition is met (block number > block target)<br>
         </p>
 
         <!-- More details about contract functions, events, etc. can be added here -->
