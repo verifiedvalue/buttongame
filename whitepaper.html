@@ -12,7 +12,7 @@
             padding: 0;
         }
         .container {
-            max-width: 1000px;
+            max-width: 50%;
             margin: auto;
             padding: 20px;
         }
@@ -32,31 +32,22 @@
 
         <h2>Introduction</h2>
         <p>
-            This document outlines the functionality and design of the <strong>ButtonGamev1</strong> smart contract.
-            The contract is designed to facilitate an onchain game to give away <strong>$DEGEN</strong>. The last player to press the button wins the pot.
+            <strong>ButtonGamev1</strong> is an onchain game designed to give away <strong>200k $DEGEN</strong> where the last player to press the button wins. There is a small fee to press the button. This fee is added to the giveaway pot.
         </p>
 
         <h2>Game Overview</h2>
         <p>
-            <strong>ButtonGamev1</strong> uses multiple onchain variables to determine the game state, game progress, and endgame handling. 
+            <strong>ButtonGamev1</strong> uses multiple onchain variables to determine the game state and endgame handling. 
             All game variables are handled by the contract.  
             All gameplay is dependent on confirmed transactions.
         </p>
 
-        <h2>Contract Variables</h2>
+        <h2>Key Contract Variables</h2>
         <p>
-            <strong>pot</strong>: Stores the current value of the game pot.<br>
-            <strong>startBlock</strong>: Stores the block number when the game starts.<br>
+            <strong>pot</strong>: Stores the current value of the pot.<br>
             <strong>blockTarget</strong>: Stores the target block number to determine the end of the game.<br>
-            <strong>lastBlockPlayed</strong>: Stores the block number when the last button press occurred.<br>
-            <strong>freePlaysUsed</strong>: Tracks the number of free plays used.<br>
-            <strong>numPlays</strong>: Tracks the total number of plays.<br>
-            <strong>daoAddress</strong>: Stores the address of the DAO managing the contract.<br>
             <strong>currentWinner</strong>: Stores the address of the current game winner.<br>
-            <strong>freePlayUsed</strong>: Tracks whether a player has used a free play.<br>
             <strong>endGameMet</strong>: Indicates whether the end game condition is met.<br>
-            <strong>freePlaysEnabled</strong>: Indicates whether free plays are enabled.<br>
-            <strong>playEnabled</strong>: Indicates whether the game is enabled.<br>
         </p>
 
         <!-- More details about contract functions, events, etc. can be added here -->
@@ -65,8 +56,10 @@
         <p>
             <p>There are a few key values when it comes to ButtonGame.</p>
             <p><strong>1. The Pot: </strong>The current contract account balance. This will be transferred to the winner if the block target is reached.</p> 
-            <p><strong>2. The Block Target: </strong>The block target is set based on the block number of the last confirmed button press. This means the block target is reset with each button press.</p> 
-            <p><strong>3. The Current Winner: </strong>This is the current last player to press the button. If the block target is reached before another confirmed button press is recorded, this player will win the pot.</p> 
+            <p><strong>2. The Block Target: </strong>The block target is set and updated each time the button is pressed (current block + 100). If the button is pressed while (current block >= block target) the game has ended and the tx will be rejected.</p>
+            <p><strong>3. The Current Winner: </strong>This is the last player to press the button. If the block target is reached before another confirmed button press is recorded, this player will win the pot.</p>
+            <p><strong>4. Free Play: </strong>1 Free Play will be available to each of the first 69 unique wallets.</p>
+            <p><strong>5. Play: </strong>Pressing the button will cost 69 $degen. 90% is added to the pot. 10% is directed to the team.</p> 
             
             
         </p>

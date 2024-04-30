@@ -72,7 +72,7 @@ const gameAbi = [
         "outputs": [
             {
                 "internalType": "bool",
-                "name": "isFreePlay",
+                "name": "",
                 "type": "bool"
             }
         ],
@@ -110,19 +110,6 @@ const gameAbi = [
         "name": "enablePlays",
         "outputs": [],
         "stateMutability": "nonpayable",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "endGameMet",
-        "outputs": [
-            {
-                "internalType": "bool",
-                "name": "",
-                "type": "bool"
-            }
-        ],
-        "stateMutability": "view",
         "type": "function"
     },
     {
@@ -177,6 +164,24 @@ const gameAbi = [
                 "internalType": "uint256[]",
                 "name": "",
                 "type": "uint256[]"
+            },
+            {
+                "internalType": "bool[]",
+                "name": "",
+                "type": "bool[]"
+            }
+        ],
+        "stateMutability": "view",
+        "type": "function"
+    },
+    {
+        "inputs": [],
+        "name": "getBlock",
+        "outputs": [
+            {
+                "internalType": "uint256",
+                "name": "",
+                "type": "uint256"
             }
         ],
         "stateMutability": "view",
@@ -211,19 +216,6 @@ const gameAbi = [
     {
         "inputs": [],
         "name": "paidPlays",
-        "outputs": [
-            {
-                "internalType": "uint256",
-                "name": "",
-                "type": "uint256"
-            }
-        ],
-        "stateMutability": "view",
-        "type": "function"
-    },
-    {
-        "inputs": [],
-        "name": "pauseInterval",
         "outputs": [
             {
                 "internalType": "uint256",
@@ -368,7 +360,7 @@ const gameAbi = [
 ];
 
 //Primary Contract and Base Block Information
-const gameContractAddress = '0xEf2f32eF173E4266BE9be187aD6017E12d4b2E52';
+const gameContractAddress = '0x397a69F414F9675C30914fd755E32ca0819e60cf';
 const baseProvider = new Web3('https://mainnet.base.org');
 const degenProvider = new Web3('https://rpc.degen.tips');
 const ethProvider = new ethers.providers.JsonRpcProvider('https://eth-mainnet.public.blastapi.io');
@@ -397,6 +389,7 @@ const timeEstElement = document.getElementById('timeEst');
 const toggleSwitch = document.getElementById('toggleSwitch');
 const bodyElement = document.body;
 
+let gameWriteContract;
 var blockTimer;
 var currentWinner;
 let provider;
@@ -413,7 +406,10 @@ async function isFreePlayEligible() {
 
 //Change Play Button Text depending on Free Play or Game Over
 async function updatePlayButtonText(blocksToGo, winnerAddr) {
-    if( blocksToGo < -10) {
+    const isEndGame = await gameContract.methods.isEndGameMet().call();
+    const isEnable = await gameContract.methods.playEnabled().call();
+    console.log("Game Over?:", isEndGame);
+    if(isEndGame) {
         
         if(connectedAddress === undefined) {
             playButton.innerText = 'CONNECT TO PLAY';
@@ -423,27 +419,30 @@ async function updatePlayButtonText(blocksToGo, winnerAddr) {
                 console.log();
                 playButton.innerText = 'GAME OVER';
             } else {
-                playButton.innerText = 'COLLECT WINNINGS';
+                playButton.innerText = 'COLLECT POT';
             }
                 
             
             
-        } else if(winnerAddr === "0x0000000000000000000000000000000000000000"){
-            console.log("Start Game")
-		    playButton.innerText = 'START GAME';
-        }
-        else {
+        } else {
             console.log("GAME OVER")
 		    playButton.innerText = 'GAME OVER';
         }
         
         return;
-    }
-
-    else if (connectedAddress === undefined){
+    } else if (connectedAddress === undefined){
         playButton.innerText = 'CONNECT TO PLAY';
         return
+    } else if (winnerAddr === "0x0000000000000000000000000000000000000000"){
+        if (isEnable){
+            console.log("Start Game")
+            playButton.innerText = 'START GAME';
+        } else {
+            playButton.innerText = 'SOON';
+        }
+
     }
+    
     else {
         const isEligible = await isFreePlayEligible();
         console.log(isEligible);
@@ -459,97 +458,139 @@ async function updatePlayButtonText(blocksToGo, winnerAddr) {
 
 //Update Winner Address Display
 function updateWinnerText(winnerAddress, winnerElement) {
-
-	if (connectedAddress === undefined){
+    if (connectedAddress === undefined) {
         winnerElement.textContent = winnerAddress;
-		winnerElement.classList.add("winner");
-    }
-    else {
+        winnerElement.classList.add("winner");
+    } else {
         if (currentWinner.toLowerCase() === connectedAddress.toLowerCase()) {
+            if (winnerAddress.includes('.eth')) {
+                winnerElement.textContent = '🎩 ' + winnerAddress;
+            } else {
+                winnerElement.textContent = '🎩 YOU';
+            }
+            winnerElement.classList.remove("notyou-animation");
             winnerElement.classList.remove("winner");
             winnerElement.classList.add("green-text");
+            winnerElement.classList.add("you-animation"); // Add the animation class
 
-            if (winnerAddress.includes('.eth')){
-                winnerElement.textContent = '🎩' + winnerAddress;
-            } else {
-                winnerElement.textContent = '🎩YOU';
-            }
-		
-	}   else {
+
+
+            // Optionally remove the animation class after it completes
+
+        } else {
             winnerElement.textContent = winnerAddress;
+            winnerElement.classList.remove("you-animation");
+            winnerElement.classList.add("notyou-animation");
+            winnerElement.classList.remove("green-text");
             winnerElement.classList.add("winner");
-	}
+        }
     }
-
-
-  }
+}
 
 //Connected User Called Play Function, init contract call tx
 async function playGame() {
-    
-    if(!connectedAddress) {
+    // Ensure there is a connection
+    if (!connectedAddress) {
         console.log("No Connection");
         return connectToProvider();
     }
 
-    if (provider == undefined) {
+    // Initialize provider if not already initialized
+    if (!provider) {
         provider = new Web3(window.ethereum);
         gameWriteContract = new provider.eth.Contract(gameAbi, gameContractAddress);
     }
-    
+
+    // Check network compatibility
     const network = await ethereum.request({ method: 'net_version' });
-    if(network !== '0x27bc86aa' && network !== '666666666'){
+    if (network !== '0x27bc86aa' && network !== '666666666') {
         return connectToProvider();
-        
-    }
-    const balance = await degenProvider.eth.getBalance(connectedAddress);
-    const gameState = await gameContract.methods.playEnabled().call();
-    console.log(gameState);
-    console.log(balance);
-    if(balance <= 0){
-        showError("You don't have any bridged degen!", true, 'https://bridge.degen.tips/', 'Official Bridge ⤴');
-        return;
     }
 
-    if(!gameState){
+    // Check if the game has started
+    const gameStarted = await gameContract.methods.playEnabled().call();
+    if (!gameStarted) {
         showError("Game has not started");
         return;
     }
-    // If connected, proceed with contract calls
-    const blockTarget = await gameContract.methods.blockTarget().call();
-    console.log(blockTarget);
-    if (blockTarget != 0 && blockTimer < -8 && connectedAddress.toLowerCase() !== currentWinner.toLowerCase()) {
+
+    // Check if the game is over
+    const endGameMet = await gameContract.methods.isEndGameMet().call();
+    // if (endGameMet) {
+    //     showError("Game is over");
+    //     return;
+    // }
+
+    // Check if player is currently the winner and the game is overdue
+
+    const isCurrentWinner = connectedAddress.toLowerCase() === currentWinner.toLowerCase();
+    if (endGameMet && isCurrentWinner) {
+        const winnerPaid = await gameWriteContract.methods.winnerPaid().call();
+        if (!winnerPaid) {
+            console.log("Paying Winner");
+            await gameWriteContract.methods.payWinner().send({ from: connectedAddress })
+            .on('transactionHash', hash => {
+                console.log('Transaction hash:', hash);
+            })
+            .on('receipt', receipt => {
+                console.log('Transaction receipt:', receipt);
+                showError("You drained the contract!", true, 'https://explorer.degen.tips/address/' + connectedAddress + '?tab=coin_balance_history', 'View Balance History ⤴');
+            })
+            .on('error', error => {
+                console.error('Transaction failed:', error);
+                showError("Transaction Failed: " + error.message);
+            });;
+            return;
+        } else {
+            showError("Game is over");
+            return;
+        }
+    } else if (endGameMet) {
         showError("Game is over");
-        return
+        return;
     }
+
     try {
         const isEligible = await isFreePlayEligible();
         const playAmount = isEligible ? '0' : provider.utils.toWei('1', 'ether');
-        
-        if (blockTimer < -10 && connectedAddress.toLowerCase() === currentWinner.toLowerCase()){
-            const winnerPaid = await gameContract.methods.winnerPaid().call();
-            if (!winnerPaid){
-                console.log("Paying Winner");
-                await gameWriteContract.methods.payWinner().send({ from: connectedAddress });
-            } else {
-                showError("Game is over");
-                return
-            }
-            
-        } else {
-            if (isEligible) {
-                await gameWriteContract.methods.freePlay().send({ from: connectedAddress });
-            } else {
-                await gameWriteContract.methods.play().send({ from: connectedAddress, value: playAmount });
-            }
-        }
 
+        // Check balance only if not using free play
+        if (!isEligible) {
+            const balance = await provider.eth.getBalance(connectedAddress);
+            if (balance <= 0) {
+                showError("You don't have enough DEGEN!", true, 'https://bridge.degen.tips/', 'Official Bridge ⤴');
+                return;
+            }
+            await gameWriteContract.methods.play().send({ from: connectedAddress, value: playAmount })
+            .on('transactionHash', hash => {
+                console.log('Transaction hash:', hash);
+            })
+            .on('receipt', receipt => {
+                console.log('Transaction receipt:', receipt);
+            })
+            .on('error', error => {
+                console.error('Transaction failed:', error);
+                showError("Transaction Failed: " + error.message);
+            });;
+        } else {
+            await gameWriteContract.methods.freePlay().send({ from: connectedAddress })
+            .on('transactionHash', hash => {
+                console.log('Transaction hash:', hash);
+            })
+            .on('receipt', receipt => {
+                console.log('Transaction receipt:', receipt);
+            })
+            .on('error', error => {
+                console.error('Transaction failed:', error);
+                showError("Transaction Failed: " + error.message);
+            });;
+        }
     } catch (error) {
-        // Handle user rejection or any other error
         console.error('Transaction rejected or error occurred:', error);
-        // You can display a message to the user or handle the error accordingly
+        showError("Transaction failed: " + error.message);
     }
 }
+
 
 async function connectToProvider() {
     console.log("Connecting to Provider")
@@ -572,7 +613,7 @@ async function connectToProvider() {
                     method: 'wallet_addEthereumChain',
                     params: [{
                         chainId: '0x27bc86aa', // Must be a hexadecimal number, e.g., '0x1' for Ethereum Mainnet
-                        chainName: 'Degen Network',
+                        chainName: 'Degen',
                         nativeCurrency: {
                             name: 'Degen',
                             symbol: 'DEGEN', // Typically 2-4 characters
@@ -615,9 +656,6 @@ async function connectToProvider() {
     }
 }
 
-async function addDegenChain(){
-
-}
 
 async function handleAccountsChanged() {
     if (connectedAddress == undefined) {
@@ -629,7 +667,7 @@ async function handleAccountsChanged() {
         if (accounts[0] != connectedAddress){
             connectedAddress = accounts[0];
             updatePlayButtonText(blockTimer, currentWinner);
-            updateWinnerText(currentWinner.substring(0, 6), winnerElement);
+            updateWinnerText(currentWinner.substring(0, 8), winnerElement);
             const ensName = await getEns(connectedAddress);
             console.log("ensName: ", ensName);
             if (ensName != null){
@@ -653,8 +691,8 @@ function updateDisplayedAddress(address) {
     }
   }
 
-function formatTime(blocksToWin){
-    seconds = Number(blocksToWin)*2;
+function formatTime(blocksToWin) {
+    const seconds = Math.floor(Number(blocksToWin) / 4);
     const minutes = Math.floor(seconds / 60);
     const remainingSeconds = seconds % 60;
     return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
@@ -672,33 +710,6 @@ async function getEns (address) {
 
 }
 
-async function displayTopPlayers() {
-    try {
-        // Call the getAllPlayerStats function from the smart contract
-        const [addresses, counts] = await gameContract.methods.getAllPlayerStats().call();
-
-        // Combine addresses and counts into a single array of objects
-        let players = addresses.map((address, index) => ({
-            address: address,
-            plays: counts[index]
-        }));
-
-        // Sort players by the number of plays in descending order
-        players.sort((a, b) => b.plays - a.plays);
-
-        // Select the top 10 players
-        const topPlayers = players.slice(0, 10);
-
-        // Display the top 10 players
-        console.log("Top 10 Players:");
-        topPlayers.forEach((player, index) => {
-            console.log(`${index + 1}. Address: ${player.address}, Plays: ${player.plays}`);
-        });
-
-    } catch (error) {
-        console.error("Failed to fetch or process player data:", error);
-    }
-}
 
 // Get the modal
 var modal = document.getElementById("errorModal");
@@ -790,18 +801,20 @@ window.onclick = function(event) {
 window.addEventListener('load', async () => {
     // Initialize Game Variables
 	currentWinner = await gameContract.methods.currentWinner().call();
-	var currentBlock = await baseProvider.eth.getBlockNumber();
+    var liveBaseBlock = await baseProvider.eth.getBlockNumber();
+	var currentBlock = await gameContract.methods.getBlock().call();
 	var blockTarget = await gameContract.methods.blockTarget().call();
 	var pot = await gameContract.methods.pot().call();
     blockTimer = blockTarget - currentBlock;
 
-    var targetProgress = targetProgress = ((100 - blockTimer) / 100) * 100;
+    var targetProgress = targetProgress = ((500 - blockTimer) / 500) * 100;
     var potValue = parseFloat(baseProvider.utils.fromWei(pot, 'ether'));
+    updatePlayButtonText(blockTimer, currentWinner);
     updateWinnerText(await getEns(currentWinner), winnerElement);
     potElement.textContent = (potValue.toFixed(0)) + "  DEGEN";
-    blocksToGoElement.textContent = Math.max(0, Math.min(100, blockTimer));
-    targetProgressElement.style.width = `${Math.max(0, Math.min(100, targetProgress))}%`;
-    updatePlayButtonText(blockTimer, currentWinner);
+    blocksToGoElement.textContent = Math.max(0, Math.min(500, blockTimer));
+    targetProgressElement.style.width = `${Math.max(0, Math.min(500, targetProgress))}%`;
+
 
 
 setInterval(async () => {
@@ -819,10 +832,13 @@ setInterval(async () => {
     } 
 
     //Update the timer every time
-    currentBlock = await baseProvider.eth.getBlockNumber();
+    currentBlock = await gameContract.methods.getBlock().call();
+    liveBaseBlock = await baseProvider.eth.getBlockNumber();
     blockTimer = blockTarget - currentBlock;
-	targetProgress = ((100 - blockTimer) / 100) * 100;
-    console.log(targetProgress);
+    console.log("Base Timer ", (blockTarget - (liveBaseBlock)));
+    console.log("Degen Timer ", blockTarget - currentBlock);
+    console.log("Timer Difference: ", (liveBaseBlock - currentBlock) );
+	targetProgress = ((500 - blockTimer) / 500) * 100;
 	await updatePlayButtonText(blockTimer, currentWinner);
     updateWinnerText(await getEns(currentWinner), winnerElement);
 
@@ -836,21 +852,22 @@ setInterval(async () => {
 
     } else {
         //getBlockInterval(startBlock, currentBlock);
-        blocksToGoElement.textContent = blockTimer;
-        timeEstElement.textContent = "(~" + String(formatTime(blockTimer)) + ")";
+        blocksToGoElement.textContent = Math.max(0, Math.min(500, blockTimer));
+        timeEstElement.innerHTML = "(" + formatTime(blockTimer) + ")"
         
     }
     
     //Show Progress Bar
-    targetProgressElement.style.width = `${Math.max(0, Math.min(100, targetProgress))}%`;
+    targetProgressElement.style.width = `${Math.max(0, Math.min(500, targetProgress))}%`;
     console.log(targetProgressElement.style.width);
 
     //Format and Update Pot
     potValue = parseFloat(baseProvider.utils.fromWei(pot, 'ether'));
-    potElement.textContent = (potValue.toFixed(0)) + "  DEGEN";
+    potElement.textContent = parseInt(potValue).toLocaleString() + " DEGEN";
+    
 
 
-}, 2000);
+}, 1000);
 
 
 

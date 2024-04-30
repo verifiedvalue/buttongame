@@ -4,9 +4,7 @@ body {
   color: #ffffff;
   font-family: 'Press Start 2P', cursive;
   text-align: center;
-  background-image: repeat-x url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64'%3E%3Ctext y='50%25' x='50%25' dominant-baseline='middle' text-anchor='middle' style='font-size:32px;'%3E🎩%3C/text%3E%3C/svg%3E");
-  background-size: 100px auto;
-  animation: scrollEmoji 10s linear infinite;
+
 }
 
 h1 {
@@ -42,22 +40,60 @@ button:active {
   box-shadow: 0 5px #659a1b;
 }
 
+.list {
+   /* Adjusted to your existing style */
+  margin-bottom: 3px;
+  white-space: nowrap;  /* Prevents the text from wrapping */
+  overflow: hidden;     /* Hides text that overflows the element's box */
+  text-overflow: ellipsis; /* Adds ellipsis (...) to overflowing text */
+  display: block;       /* Ensures the overflow properties work */
+  width: 100%;          /* Forces the text to fill only the width of its container */
+  text-shadow: 1px 1px 0 #000, 2px 2px 0 #000, 3px 3px 0 #000;
+}
+
+.list-text {
+  font-size: 1.2rem;
+}
+
 /* Text Elements */
-p, .markings, .list-text {
-  font-size: 1.2em;
+p, .markings {
+  font-size: 1.2rem;
   margin-bottom: 3px;
 }
 
 .green-text, .currentReset {
   color: #80C423;
+  text-shadow: 1px 1px 0 #000, 2px 2px 0 #000, 3px 3px 0 #000;
 }
 
 .winner, .markings {
   color: goldenrod;
 }
 
-.wallet-address, .top-hat-icon {
+@keyframes flashAnimation {
+  0%, 100% { color: initial; }
+  50% { color: #80C423; } /* Change to your preferred flash color */
+}
+
+@keyframes badFlashAnimation {
+  0%, 100% { color: initial; }
+  50% { color: goldenrod; } /* Change to your preferred flash color */
+}
+
+.you-animation {
+  animation: flashAnimation 0.5s linear 3; /* Runs for 2 seconds, 2 times */
+}
+
+.notyou-animation {
+  animation: badFlashAnimation 0.5s linear 3; /* Runs for 2 seconds, 2 times */
+}
+
+.wallet-address {
   font-size: 0.8rem;
+}
+
+.top-hat-icon {
+  font-size: 2rem;
 }
 
 .wallet-address {
@@ -91,9 +127,9 @@ p, .markings, .list-text {
 
 .progress{
   width: 0%;
-  background-color: #4CAF50;
+  background-color: #80C423;
   height: 100%;
-  transition: width .5s ease-in-out;
+  transition: width 0.1s;
   border:rgba(0, 0, 0, 0.19);
 
 }
@@ -192,4 +228,55 @@ header, footer {
 @keyframes scrollEmoji {
   0% { background-position: 0% 0%; }
   100% { background-position: 100% 0%; }
+}
+
+ 
+/*Leaderboard Style*/
+table {
+  width: 80%;
+  margin-left: auto;
+  margin-right: auto;
+  border-collapse: collapse;
+  font-size: 1.2rem;
+}
+
+th, td {
+  border: 1px solid #dddddd;
+  text-align: left;
+  padding: 8px;
+}
+
+th {
+  background-color: #4caf4f00;
+  color: white;
+}
+
+.tooltip {
+  position: relative;
+  display: inline-block;
+}
+
+/* Tooltip text */
+.tooltip .tooltiptext {
+  visibility: hidden;
+  width: 120px;
+  background-color: black;
+  color: #fff;
+  text-align: center;
+  border-radius: 6px;
+  padding: 5px 0;
+  position: absolute;
+  z-index: 1;
+  bottom: 100%;
+  left: 50%;
+  margin-left: -60px;
+}
+
+/* Show the tooltip text when you mouse over the tooltip container */
+.tooltip:hover .tooltiptext {
+  visibility: visible;
+}
+
+.container{
+  width: 60%;
 }
