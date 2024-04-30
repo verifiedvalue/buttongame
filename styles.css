@@ -8,7 +8,7 @@ body {
 }
 
 h1 {
-  font-size: 4.5em;
+  font-size: 4vw;
   margin: 0;
   padding: 10px 0;
   color: #ffffff;
@@ -17,7 +17,7 @@ h1 {
 
 button {
   font-family: 'Press Start 2P', cursive;
-  font-size: 2em;
+  font-size: 2vw;
   background-color: #721CB8;
   color: #ffffff;
   border: none;
@@ -41,27 +41,26 @@ button:active {
 }
 
 .list {
-   /* Adjusted to your existing style */
-  margin-bottom: 3px;
-  white-space: nowrap;  /* Prevents the text from wrapping */
-  overflow: hidden;     /* Hides text that overflows the element's box */
-  text-overflow: ellipsis; /* Adds ellipsis (...) to overflowing text */
-  display: block;       /* Ensures the overflow properties work */
-  width: 100%;          /* Forces the text to fill only the width of its container */
+  white-space: nowrap; /* Keeps the list in a single line */
+  overflow: hidden;    /* Hides parts of the text that might overflow */
+  text-overflow: ellipsis; /* Shows an ellipsis if the text overflows */
+  display: block;      /* Use block to ensure it fills the line */
+  width: 100%;         /* Takes full width of its container */
   text-shadow: 1px 1px 0 #000, 2px 2px 0 #000, 3px 3px 0 #000;
 }
 
 .list-text {
-  font-size: 1.2rem;
+  font-size: 1vw; /* Responsive font size that scales with the viewport width */
+  display: inline-block; /* Ensures the text aligns nicely in the list */
 }
 
 /* Text Elements */
 p, .markings {
-  font-size: 1.2rem;
+  font-size: 1.2vw;
   margin-bottom: 3px;
 }
 
-.green-text, .currentReset {
+.green-text {
   color: #80C423;
   text-shadow: 1px 1px 0 #000, 2px 2px 0 #000, 3px 3px 0 #000;
 }
@@ -89,11 +88,11 @@ p, .markings {
 }
 
 .wallet-address {
-  font-size: 0.8rem;
+  font-size: 0.7vw;
 }
 
 .top-hat-icon {
-  font-size: 2rem;
+  font-size: 2vw;
 }
 
 .wallet-address {
@@ -187,14 +186,14 @@ header, footer {
 }
 
 .top-hat-icon {
-  font-size: 2em;
+  font-size: 1.2vw;
   margin-right: 5px;
 }
 
 /* Responsive Design Adjustments */
 @media (max-width: 768px) {
   h1, button {
-    font-size: 1.5em;
+    font-size: 1.5vw;
   }
 
   .progress-bar, .gameBox {
@@ -205,8 +204,8 @@ header, footer {
     background-size: 50px auto;
   }
 
-  .wallet-address, p, .markings, .list-text {
-    font-size: 0.9rem;
+  .wallet-address, p {
+    font-size: 0.9vw;
   }
 
   .signature{
@@ -221,7 +220,7 @@ header, footer {
   }
 
   footer {
-    font-size: 0.8rem;
+    font-size: 0.8vw;
   }
 }
 
