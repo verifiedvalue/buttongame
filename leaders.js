@@ -404,14 +404,14 @@ async function displayTopPlayers() {
       const counts = result[1].map(Number);
       const freeStatus = result[2];
       const durations = result[3].map(Number); // Assuming duration data is the fourth item in the array
-      //const ensNames = await getEnsBatch(addresses); // Use batch ENS lookup
+      const ensNames = await getEnsBatch(addresses); // Use batch ENS lookup
       
       console.log("check 1");
       let players = addresses.map((address, index) => ({
           address: address,
           plays: counts[index],
           duration: durations[index]/69, // Include duration data
-          //ensName: ensNames[index],
+          ensName: ensNames[index],
           freePlay: freeStatus[index] // Include resolved ENS names
       }));
 
