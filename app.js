@@ -468,7 +468,7 @@ async function updatePlayButtonText(blocksToGo, winnerAddr) {
     else {
         const isEligible = await isFreePlayEligible();
 	    const playButton = document.getElementById('playButton');
-		playButton.innerText = isEligible ? '1 FREE PLAY' : 'PLAY 1 DEGEN';
+		playButton.innerText = isEligible ? '1 FREE PLAY' : 'PLAY 69 DEGEN';
 	}	
 
     
