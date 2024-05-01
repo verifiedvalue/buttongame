@@ -410,7 +410,7 @@ async function displayTopPlayers() {
         let players = addresses.map((address, index) => ({
             address: address,
             plays: counts[index],
-            duration: durations[index]/420, // Include duration data
+            duration: durations[index]/69, // Include duration data
             ensName: ensNames[index],
             freePlay: freeStatus[index] // Include resolved ENS names
         }));
