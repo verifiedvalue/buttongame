@@ -1,848 +1,838 @@
-let gameContract;
+/* global solanaWeb3 */
 
-const gameAbi = [
-    {
-      "inputs": [],
-      "stateMutability": "payable",
-      "type": "constructor"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "owner",
-          "type": "address"
-        }
-      ],
-      "name": "OwnableInvalidOwner",
-      "type": "error"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "account",
-          "type": "address"
-        }
-      ],
-      "name": "OwnableUnauthorizedAccount",
-      "type": "error"
-    },
-    {
-      "anonymous": false,
-      "inputs": [
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "previousOwner",
-          "type": "address"
-        },
-        {
-          "indexed": true,
-          "internalType": "address",
-          "name": "newOwner",
-          "type": "address"
-        }
-      ],
-      "name": "OwnershipTransferred",
-      "type": "event"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "name": "blockHeldDuration",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "blockReset",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "blockTarget",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "freeAddress",
-          "type": "address"
-        }
-      ],
-      "name": "checkFreePlay",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "creatorWallet",
-      "outputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "currentWinner",
-      "outputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "enablePlays",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "freePlay",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "name": "freePlayUsed",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "freePlaysUsed",
-      "outputs": [
-        {
-          "internalType": "uint8",
-          "name": "",
-          "type": "uint8"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "getAllPlayerStats",
-      "outputs": [
-        {
-          "internalType": "address[]",
-          "name": "",
-          "type": "address[]"
-        },
-        {
-          "internalType": "uint256[]",
-          "name": "",
-          "type": "uint256[]"
-        },
-        {
-          "internalType": "bool[]",
-          "name": "",
-          "type": "bool[]"
-        },
-        {
-          "internalType": "uint256[]",
-          "name": "",
-          "type": "uint256[]"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "getBlock",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "isEndGameMet",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "owner",
-      "outputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "paidPlays",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "payWinner",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "play",
-      "outputs": [],
-      "stateMutability": "payable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "name": "playCount",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "playEnabled",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "name": "playerAddresses",
-      "outputs": [
-        {
-          "internalType": "address",
-          "name": "",
-          "type": "address"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "pot",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "renounceOwnership",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "_creatorWallet",
-          "type": "address"
-        }
-      ],
-      "name": "setCreatorWallet",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "newOwner",
-          "type": "address"
-        }
-      ],
-      "name": "transferOwnership",
-      "outputs": [],
-      "stateMutability": "nonpayable",
-      "type": "function"
-    },
-    {
-      "inputs": [],
-      "name": "winnerPaid",
-      "outputs": [
-        {
-          "internalType": "bool",
-          "name": "",
-          "type": "bool"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    }
+/////////////////////////////
+// CONFIG
+/////////////////////////////
+const PROGRAM_ID = "BzRDQGEakfGQJrucuScr77QoQdckmLmNGSdqveea9MyL";
+const GAME_MINT  = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
+
+const STATE = "FnCLwBY38p1LUtCs6GaC438EZ3HmanAdAhGB4nfNANAz";
+const VAULT = "CbpG1mzYkbPKAKcVMDsjfPnqJhDdHceHXuuQ9UUeA9K";
+
+let CLUSTER = "devnet"; // change if needed
+
+/////////////////////////////
+// SOLANA
+/////////////////////////////
+const { Connection, PublicKey, Transaction, TransactionInstruction } = solanaWeb3;
+
+const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+const SYSVAR_CLOCK_PUBKEY = new PublicKey("SysvarC1ock11111111111111111111111111111111");
+
+const programIdPk = new PublicKey(PROGRAM_ID);
+const mintPk = new PublicKey(GAME_MINT);
+const statePk = new PublicKey(STATE);
+const vaultPk = new PublicKey(VAULT);
+
+let connection = null;
+
+/////////////////////////////
+// UI
+/////////////////////////////
+const el = (id) => document.getElementById(id);
+
+const walletDot = el("walletDot");
+const walletText = el("walletText");
+const connectBtn = el("connectBtn");
+const disconnectBtn = el("disconnectBtn");
+
+const potDisplay = el("potDisplay");
+const phaseText = el("phaseText");
+const mainBtn = el("mainBtn");
+const mainHint = el("mainHint");
+
+const clockLabel = el("clockLabel");
+const clockDisplay = el("clockDisplay");
+const barFill = el("barFill");
+
+const toggleDetailsBtn = el("toggleDetailsBtn");
+const detailsPanel = el("detailsPanel");
+
+const programLink = el("programLink");
+const stateLink = el("stateLink");
+const vaultLink = el("vaultLink");
+const mintLink = el("mintLink");
+
+const winnerLink = el("winnerLink");
+const unclaimedText = el("unclaimedText");
+const playCostText = el("playCostText");
+const vaultText = el("vaultText");
+
+// Winner log container (add to HTML as described)
+const winnerLogEl = el("winnerLog");
+
+// Threshold / progress panel elements
+const tpSub = el("tpSub");
+const tpProjectedPot = el("tpProjectedPot");
+const tpVaultBalance = el("tpVaultBalance");
+const tpPlays = el("tpPlays");
+const tpDivisor = el("tpDivisor");
+const tpBarFill = el("tpBarFill");
+const tpBarLeft = el("tpBarLeft");
+const tpBarRight = el("tpBarRight");
+const tpFoot = el("tpFoot");
+
+const tier0 = el("tier0");
+const tier1 = el("tier1");
+const tier2 = el("tier2");
+const tier0Reward = el("tier0Reward");
+const tier1Reward = el("tier1Reward");
+const tier2Reward = el("tier2Reward");
+
+/////////////////////////////
+// Frontend state
+/////////////////////////////
+let walletPubkey = null;
+let mintDecimals = 6;
+
+let latestState = null;
+let latestVaultAmount = 0n;
+
+let mainMode = "PLAY";   // "PLAY" | "CLAIM"
+let claimArmed = false;  // true only when CLAIM should actually submit a tx
+
+// ---- Session-only winner history ----
+const MAX_WINNER_LOG = 25;
+let lastWinnerSeen = null; // base58 string
+let winnerHistory = []; // { winner, tsMs }
+
+/////////////////////////////
+// Helpers
+/////////////////////////////
+function rpcUrl() {
+  if (CLUSTER === "devnet") return "https://api.devnet.solana.com";
+  return "https://api.mainnet-beta.solana.com";
+}
+
+function solscanAccountUrl(pubkey) {
+  if (CLUSTER === "devnet") return `https://solscan.io/account/${pubkey}?cluster=devnet`;
+  return `https://solscan.io/account/${pubkey}`;
+}
+function solscanTxUrl(sig) {
+  if (CLUSTER === "devnet") return `https://solscan.io/tx/${sig}?cluster=devnet`;
+  return `https://solscan.io/tx/${sig}`;
+}
+
+function addLog(line, linkUrl = null) {
+  const log = el("activityLog");
+  if (!log) return;
+
+  const div = document.createElement("div");
+  div.className = "logLine";
+  if (linkUrl) {
+    div.innerHTML = `${escapeHtml(line)} — <a href="${linkUrl}" target="_blank" rel="noreferrer" style="text-decoration:underline;">view</a>`;
+  } else {
+    div.textContent = line;
+  }
+  log.prepend(div);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[c]));
+}
+
+function nowSec() {
+  return Math.floor(Date.now() / 1000);
+}
+
+function fmtClock(seconds) {
+  const s = Math.max(0, Math.floor(seconds));
+  const mm = Math.floor(s / 60);
+  const ss = s % 60;
+  return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+}
+
+function fmtTokenRounded(baseUnitsBigInt) {
+  // 1 decimal max, because pot will be huge
+  const denom = 10 ** mintDecimals;
+  const v = Number(baseUnitsBigInt) / denom;
+  return v.toFixed(0);
+}
+
+function fmtTokenExact(baseUnitsBigInt) {
+  const d = BigInt(10) ** BigInt(mintDecimals);
+  const whole = baseUnitsBigInt / d;
+  const frac = baseUnitsBigInt % d;
+  const fracStr = frac.toString().padStart(mintDecimals, "0").slice(0, Math.min(6, mintDecimals));
+  return mintDecimals === 0 ? `${whole}` : `${whole}.${fracStr}`;
+}
+
+function shortPk(pk58) {
+  if (!pk58 || pk58.length < 10) return pk58 || "—";
+  return `${pk58.slice(0, 4)}…${pk58.slice(-4)}`;
+}
+
+function fmtLocalTime(tsMs) {
+  return new Date(tsMs).toLocaleString();
+}
+
+async function getMintDecimals() {
+  const info = await connection.getParsedAccountInfo(mintPk, "confirmed");
+  const parsed = info?.value?.data?.parsed;
+  const decimals = parsed?.info?.decimals;
+  if (typeof decimals === "number") return decimals;
+  return mintDecimals;
+}
+
+// Matches on-chain pot divisor logic (based on session_plays)
+function potDivisorFromPlays(sessionPlays) {
+  const p = Number(sessionPlays || 0);
+  if (p < 250) return 40n;
+  if (p < 1000) return 10n;
+  if (p < 5000) return 5n;
+  return 5n;
+}
+
+function fmtTierReward(divisorBigInt) {
+    let playAmount = BigInt(0);
+    if (divisorBigInt == 5n) playAmount = 25000n * 1000000000n;
+    else if (divisorBigInt == 10n) playAmount = 2500n * 1000000000n;
+    else if (divisorBigInt == 20n) playAmount = 250n * 1000000000n;
+    else playAmount = 0n;
+
+
+
+  const pot = divisorBigInt > 0n ? ((latestVaultAmount + playAmount) / divisorBigInt): 0n;
+
+  return `${pot/1000000n} tokens`;
+}
+
+function updateThresholdPanel() {
+  if (!tpProjectedPot || !latestState) return;
+
+  const plays = Number(latestState.sessionPlays || 0);
+  const divisor = potDivisorFromPlays(plays);
+  const currentTier = Number(100n)/Number(divisor);
+
+
+  
+  tpVaultBalance.textContent = fmtTokenRounded(latestVaultAmount);
+  tpProjectedPot.textContent = currentTier + "% of Vault";
+  tpPlays.textContent = String(plays);
+  tpDivisor.textContent = String(divisor);
+
+  // Tier rewards
+  if (tier0Reward) tier0Reward.textContent = fmtTierReward(20n);
+  if (tier1Reward) tier1Reward.textContent = fmtTierReward(10n);
+  if (tier2Reward) tier2Reward.textContent = fmtTierReward(5n);
+
+  // Active tier highlight
+  if (tier0) tier0.classList.toggle("tpTierActive", plays > 249 && plays < 2500);
+  if (tier1) tier1.classList.toggle("tpTierActive", plays >2499 && plays < 25000);
+  if (tier2) tier2.classList.toggle("tpTierActive", plays >= 25000);
+
+  // Progress to next unlock
+  let left = 0, right = 250;
+  if (plays < 250) { left = 0; right = 250; }
+  else if (plays < 1000) { left = 250; right = 1000; }
+  else if (plays < 5000) { left = 1000; right = 5000; }
+  else { left = 5000; right = 5000; }
+
+  if (tpSub) tpSub.textContent = `Tier: /${divisor}`;
+
+  if (right === left) {
+    if (tpBarFill) tpBarFill.style.width = "100%";
+    if (tpBarLeft) tpBarLeft.textContent = `${plays} plays`;
+    if (tpBarRight) tpBarRight.textContent = `Max tier`;
+    if (tpFoot) tpFoot.textContent = "You’re in the max tier. Rewards are projected from current vault balance.";
+  } else {
+    const span = Math.max(1, (right - left));
+    const pct = Math.max(0, Math.min(1, (plays - left) / span));
+    if (tpBarFill) tpBarFill.style.width = `${pct * 100}%`;
+
+    if (tpBarLeft) tpBarLeft.textContent = `${plays} plays`;
+    if (tpBarRight) tpBarRight.textContent = `Next unlock: ${right}`;
+    if (tpFoot) tpFoot.textContent = "Rewards are projected from current vault balance.";
+  }
+}
+
+/////////////////////////////
+// Manual state decode (no borsh)
+/////////////////////////////
+function readPubkey(data, offset) {
+  return new PublicKey(data.slice(offset, offset + 32));
+}
+function readU64(data, offset) {
+  const view = new DataView(data.buffer, data.byteOffset + offset, 8);
+  return BigInt(view.getBigUint64(0, true));
+}
+function readI64(data, offset) {
+  const view = new DataView(data.buffer, data.byteOffset + offset, 8);
+  return Number(view.getBigInt64(0, true));
+}
+function readU32(data, offset) {
+  const view = new DataView(data.buffer, data.byteOffset + offset, 4);
+  return Number(view.getUint32(0, true));
+}
+function decodeState(accountData) {
+  const data = accountData.slice(8); // skip discriminator
+  let o = 0;
+
+  const owner = readPubkey(data, o); o += 32;
+  const tokenMint = readPubkey(data, o); o += 32;
+  const vault = readPubkey(data, o); o += 32;
+
+  const playCost = readU64(data, o); o += 8;
+  const roundDurationSecs = readI64(data, o); o += 8;
+
+  const currentWinner = readPubkey(data, o); o += 32;
+  const currentWinnerAta = readPubkey(data, o); o += 32;
+
+  const timerEnd = readI64(data, o); o += 8;
+  const cooldownEnd = readI64(data, o); o += 8;
+
+  const unclaimed = data[o] === 1; o += 1;
+
+  // NEW (on-chain): session_plays u32
+  const sessionPlays = readU32(data, o); o += 4;
+
+  const enabled = data[o] === 1; o += 1;
+  const bump = data[o];
+
+  return {
+    owner, tokenMint, vault,
+    playCost, roundDurationSecs,
+    currentWinner, currentWinnerAta,
+    timerEnd, cooldownEnd,
+    unclaimed, sessionPlays, enabled, bump
+  };
+}
+
+/////////////////////////////
+// Anchor discriminators + ix builders (no Anchor client)
+/////////////////////////////
+async function sha256Bytes(message) {
+  const data = new TextEncoder().encode(message);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return new Uint8Array(hash);
+}
+async function anchorDiscriminator(ixName) {
+  const preimage = `global:${ixName}`;
+  const hash = await sha256Bytes(preimage);
+  return hash.slice(0, 8);
+}
+
+function findAta(ownerPk, mintPk2) {
+  const [ata] = PublicKey.findProgramAddressSync(
+    [ownerPk.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mintPk2.toBuffer()],
+    ASSOCIATED_TOKEN_PROGRAM_ID
+  );
+  return ata;
+}
+
+async function buildPlayIx({ playerPk, playerAtaPk, previousWinnerAtaPk }) {
+  const disc = await anchorDiscriminator("play");
+  const data = disc;
+
+  const keys = [
+    { pubkey: statePk, isSigner: false, isWritable: true },
+    { pubkey: vaultPk, isSigner: false, isWritable: true },
+    { pubkey: playerPk, isSigner: true, isWritable: true },
+    { pubkey: playerAtaPk, isSigner: false, isWritable: true },
+    { pubkey: previousWinnerAtaPk, isSigner: false, isWritable: true },
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
   ];
 
-//Primary Contract and Base Block Information
-const gameContractAddress = '0xEEbD89daFA4Cb57ED0342A5405b84D2f7a059e96';
-const degenProvider = new Web3('https://rpc.degen.tips');
-const ethProvider = new ethers.providers.JsonRpcProvider('https://eth-mainnet.public.blastapi.io');
-
-gameContract = new degenProvider.eth.Contract(gameAbi, gameContractAddress);
-
-let connectedAddress;
-let accounts;
-let isConnecting = false;
-let ensNamesEnabled = false;
-
-//Dynamic Page Elements
-const connectedElement = document.getElementById('connectStatus');
-const currentElement = document.getElementById('current');
-const winnerElement = document.getElementById('winner');
-const blockElement = document.getElementById('block');
-const blocksToGoElement = document.getElementById('blocksToGo');
-const currentPeriodElement = document.getElementById('currentPeriod');
-const targetElement = document.getElementById('target');
-const potElement = document.getElementById('pot');
-const targetProgressElement = document.getElementById('target-progress');
-const thresholdProgressElement = document.getElementById('threshold-progress');
-const resetProgressElement = document.getElementById('reset-progress');
-const resetProgElement = document.getElementById('resetProg');
-const timeEstElement = document.getElementById('timeEst');
-const toggleSwitch = document.getElementById('toggleSwitch');
-const bodyElement = document.body;
-
-let gameWriteContract;
-var blockTimer;
-var currentWinner;
-let provider;
-var chainId;
-
-
-// Check Free Plays for Connected User
-async function isFreePlayEligible() {
-	return await gameContract.methods.checkFreePlay(connectedAddress).call();
+  return new TransactionInstruction({ programId: programIdPk, keys, data });
 }
 
-//Change Play Button Text depending on Free Play or Game Over
-async function updatePlayButtonText(blocksToGo, winnerAddr) {
-    const isEndGame = await gameContract.methods.isEndGameMet().call();
-    const isEnable = await gameContract.methods.playEnabled().call();
+async function buildClaimIx({ winnerPk, winnerAtaPk }) {
+  const disc = await anchorDiscriminator("claim");
+  const data = disc;
 
-    if(isEndGame) {
-        
-        if(connectedAddress === undefined) {
-            playButton.innerText = 'CONNECT TO PLAY';
-        } else if(connectedAddress.toLowerCase() === winnerAddr.toLowerCase()){
-            if (await gameContract.methods.winnerPaid().call()){
-                playButton.innerText = 'GAME OVER';
-            } else {
-                playButton.innerText = 'COLLECT POT';
-            }
-                
-            
-            
-        } else {
-		    playButton.innerText = 'GAME OVER';
-        }
-        
-        return;
-    } else if (connectedAddress === undefined){
-        playButton.innerText = 'CONNECT TO PLAY';
-        return
-    } else if (winnerAddr === "0x0000000000000000000000000000000000000000"){
-        if (isEnable){
-            playButton.innerText = 'START GAME';
-        } else {
-            playButton.innerText = 'SOON';
-        }
+  const keys = [
+    { pubkey: statePk, isSigner: false, isWritable: true },
+    { pubkey: vaultPk, isSigner: false, isWritable: true },
+    { pubkey: winnerPk, isSigner: true, isWritable: true },
+    { pubkey: winnerAtaPk, isSigner: false, isWritable: true },
+    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+    { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
+  ];
 
-    }
-    
-    else {
-        const isEligible = await isFreePlayEligible();
-	    const playButton = document.getElementById('playButton');
-		playButton.innerText = isEligible ? '1 FREE PLAY' : 'PLAY 69 DEGEN';
-	}	
+  return new TransactionInstruction({ programId: programIdPk, keys, data });
+}
 
-    
-	
-	
-  
+/////////////////////////////
+// Phase logic
+/////////////////////////////
+function computePhase(gs, now) {
+  if (!gs?.enabled) return "DISABLED";
+  if (gs.timerEnd === 0) return "IDLE";
+  if (now <= gs.timerEnd) return "ACTIVE";
+  if (now > gs.timerEnd && now < gs.cooldownEnd) return "COOLDOWN";
+  if (gs.unclaimed) return "POST_COOLDOWN_UNCLAIMED";
+  return "IDLE";
+}
+
+function phaseLabel(phase) {
+  switch (phase) {
+    case "DISABLED": return "Game not enabled";
+    case "IDLE": return "Waiting for a play";
+    case "ACTIVE": return "Round live — last press wins";
+    case "COOLDOWN": return "Cooldown — winner may claim";
+    case "POST_COOLDOWN_UNCLAIMED": return "Round ended — winner may claim anytime, or first press auto-pays";
+    default: return "—";
+  }
+}
+
+/////////////////////////////
+// Winner log (this session)
+/////////////////////////////
+function trackWinnerChanges(gs) {
+  if (!gs) return;
+  const winner58 = gs.currentWinner.toBase58();
+  const default58 = PublicKey.default.toBase58();
+
+  // Don’t log default (no winner)
+  if (winner58 === default58) return;
+
+  // Initialize lastWinnerSeen on first non-default observation:
+  if (lastWinnerSeen === null) {
+    lastWinnerSeen = winner58;
+    pushWinnerEntry(winner58, Date.now(), true);
+    return;
   }
 
-//Update Winner Address Display
-function updateWinnerText(winnerAddress, winnerElement) {
-    if (connectedAddress === undefined) {
-        winnerElement.textContent = winnerAddress;
-        winnerElement.classList.add("winner");
-    } else {
-        if (currentWinner.toLowerCase() === connectedAddress.toLowerCase()) {
-            if (winnerAddress.includes('.eth')) {
-                winnerElement.textContent = '🎩 ' + winnerAddress;
-            } else {
-                winnerElement.textContent = '🎩 YOU';
-            }
-            winnerElement.classList.remove("notyou-animation");
-            winnerElement.classList.remove("winner");
-            winnerElement.classList.add("green-text");
-            winnerElement.classList.add("you-animation"); // Add the animation class
+  // If unchanged, do nothing
+  if (winner58 === lastWinnerSeen) return;
 
-
-
-            // Optionally remove the animation class after it completes
-
-        } else {
-            winnerElement.textContent = winnerAddress;
-            winnerElement.classList.remove("you-animation");
-            winnerElement.classList.add("notyou-animation");
-            winnerElement.classList.remove("green-text");
-            winnerElement.classList.add("winner");
-        }
-    }
+  // Winner changed
+  lastWinnerSeen = winner58;
+  pushWinnerEntry(winner58, Date.now(), false);
 }
 
-//Connected User Called Play Function, init contract call tx
-async function playGame() {
-    // Ensure there is a connection
-    if (!connectedAddress) {
-        return connectToProvider();
+function pushWinnerEntry(winner58, tsMs, isInitial) {
+  // Dedupe: if the newest entry is same winner, skip
+  if (winnerHistory.length > 0 && winnerHistory[0].winner === winner58) return;
+
+  winnerHistory.unshift({ winner: winner58, tsMs, isInitial });
+  if (winnerHistory.length > MAX_WINNER_LOG) winnerHistory.length = MAX_WINNER_LOG;
+
+  renderWinnerLog();
+}
+
+function fmtSince(tsMs) {
+  const deltaSec = Math.max(0, Math.floor((Date.now() - tsMs) / 1000));
+  const mm = Math.floor(deltaSec / 60);
+  const ss = deltaSec % 60;
+  return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")} ago`;
+}
+
+function renderWinnerLog() {
+  if (!winnerLogEl) return;
+
+  winnerLogEl.innerHTML = "";
+
+  const connected58 = walletPubkey ? walletPubkey.toBase58() : null;
+
+  winnerHistory.forEach((row, idx) => {
+    const div = document.createElement("div");
+    div.className = "logLine";
+
+    const isTop = idx === 0;
+    const isYou = connected58 && row.winner === connected58;
+
+    // Highlight rules
+    if (isYou && isTop) {
+      div.style.border = "1px solid rgba(255, 215, 0, .55)";
+      div.style.background = "rgba(255, 215, 0, .10)";
+    } else if (isYou) {
+      div.style.border = "1px solid rgba(0, 255, 140, .40)";
+      div.style.background = "rgba(0, 255, 140, .08)";
     }
 
-    // Initialize provider if not already initialized
-    if (!provider) {
-        provider = new Web3(window.ethereum);
-        gameWriteContract = new provider.eth.Contract(gameAbi, gameContractAddress);
+    // Display name
+    const displayName = isYou ? "You" : shortPk(row.winner);
+    const since = fmtSince(row.tsMs);
+
+    // clickable account link
+    const url = solscanAccountUrl(row.winner);
+
+    div.innerHTML =
+      `<strong>${isTop ? "Current winner" : ""}</strong>` +
+      `${isTop ? " " : ""}` +
+      `<span title="${escapeHtml(row.winner)}">${escapeHtml(displayName)}</span>` +
+      ` <span style="opacity:.7">(${escapeHtml(since)})</span>` +
+      ` — <a href="${url}" target="_blank" rel="noreferrer" style="text-decoration:underline;">solscan</a>`;
+
+    winnerLogEl.appendChild(div);
+  });
+}
+
+/////////////////////////////
+// Wallet
+/////////////////////////////
+function getWalletProvider() {
+  const any = window.solana;
+  if (any && any.isPhantom) return any;
+  if (any) return any;
+  return null;
+}
+
+async function connectWallet() {
+  const provider = getWalletProvider();
+  if (!provider) {
+    alert("No Solana wallet found. Install Phantom.");
+    return;
+  }
+  const resp = await provider.connect({ onlyIfTrusted: false });
+  walletPubkey = resp.publicKey;
+  addLog(`Wallet connected: ${walletPubkey.toBase58()}`);
+
+  disconnectBtn.style.display = "inline-block";
+  connectBtn.style.display = "none";
+  render(); // update CTA immediately
+}
+
+async function disconnectWallet() {
+  const provider = getWalletProvider();
+  try { await provider?.disconnect?.(); } catch {}
+  walletPubkey = null;
+
+  disconnectBtn.style.display = "none";
+  connectBtn.style.display = "inline-block";
+  addLog("Wallet disconnected");
+  render();
+}
+
+function renderWalletPill() {
+  if (walletPubkey) {
+    walletDot.classList.add("on");
+    walletText.textContent = `Connected: ${walletPubkey.toBase58().slice(0,4)}…${walletPubkey.toBase58().slice(-4)}`;
+  } else {
+    walletDot.classList.remove("on");
+    walletText.textContent = "Not connected";
+  }
+}
+
+/////////////////////////////
+// Read-only refresh
+/////////////////////////////
+async function refreshReadOnly() {
+  try {
+    mintDecimals = await getMintDecimals().catch(() => mintDecimals);
+
+    const [stateAcc, vaultBal] = await Promise.all([
+      connection.getAccountInfo(statePk, "confirmed"),
+      connection.getTokenAccountBalance(vaultPk, "confirmed"),
+    ]);
+
+    latestVaultAmount = BigInt(vaultBal?.value?.amount || "0");
+    //latestVaultAmount = 100000000000000n;
+    if (!stateAcc?.data) {
+      latestState = null;
+      phaseText.textContent = "State not found";
+      mainBtn.classList.add("disabled");
+      mainBtn.disabled = true;
+      mainBtn.textContent = "ERROR";
+      return;
     }
 
-    // Check network compatibility
-    const network = await ethereum.request({ method: 'net_version' });
-    if (network !== '0x27bc86aa' && network !== '666666666') {
-        return connectToProvider();
+    latestState = decodeState(stateAcc.data);
+
+    // Track winner changes for session log
+    trackWinnerChanges(latestState);
+
+    // Populate details links
+    programLink.textContent = programIdPk.toBase58();
+    programLink.href = solscanAccountUrl(programIdPk.toBase58());
+
+    stateLink.textContent = statePk.toBase58();
+    stateLink.href = solscanAccountUrl(statePk.toBase58());
+
+    vaultLink.textContent = vaultPk.toBase58();
+    vaultLink.href = solscanAccountUrl(vaultPk.toBase58());
+
+    mintLink.textContent = mintPk.toBase58();
+    mintLink.href = solscanAccountUrl(mintPk.toBase58());
+
+    // Winner detail
+    const w = latestState.currentWinner.toBase58();
+    winnerLink.textContent = (w === PublicKey.default.toBase58()) ? "—" : w;
+    winnerLink.href = (w === PublicKey.default.toBase58()) ? "#" : solscanAccountUrl(w);
+
+    // show YES when unclaimed == true
+    unclaimedText.textContent = latestState.unclaimed ? "YES" : "NO";
+
+    playCostText.textContent = `${fmtTokenExact(latestState.playCost)} tokens`;
+    vaultText.textContent = `${fmtTokenExact(latestVaultAmount)} tokens`;
+
+    render();
+  } catch (e) {
+    console.error(e);
+    addLog(`Read error: ${e.message || e.toString()}`);
+  }
+}
+
+/////////////////////////////
+// Render main UI
+/////////////////////////////
+function render() {
+  renderWalletPill();
+
+  if (!latestState) return;
+
+  const now = nowSec();
+  const phase = computePhase(latestState, now);
+
+  // POT (matches on-chain logic: vault / divisor(session_plays))
+  const divisor = potDivisorFromPlays(latestState.sessionPlays);
+  const pot = divisor > 0 ? (latestVaultAmount / divisor) : 0n;
+  potDisplay.textContent = fmtTokenRounded(pot);
+
+  // Update thresholds/progress panel
+  updateThresholdPanel();
+
+  // Phase text
+  phaseText.textContent = phaseLabel(phase);
+
+  const winnerPk58 = latestState.currentWinner.toBase58();
+  const isWinnerConnected = !!walletPubkey && walletPubkey.toBase58() === winnerPk58;
+
+  // CLOCK + BAR
+  let secondsLeft = 0;
+  let pct = 0;
+
+  if (phase === "ACTIVE") {
+    secondsLeft = latestState.timerEnd - now;
+    clockLabel.textContent = "TIME";
+    const duration = Math.max(1, latestState.roundDurationSecs || 1);
+    const elapsed = duration - secondsLeft;
+    pct = Math.max(0, Math.min(1, elapsed / duration));
+  } else if (phase === "COOLDOWN") {
+    secondsLeft = latestState.cooldownEnd - now;
+    clockLabel.textContent = "COOLDOWN";
+    const total = Math.max(1, (latestState.cooldownEnd - latestState.timerEnd) || 1);
+    const elapsed = total - secondsLeft;
+    pct = Math.max(0, Math.min(1, elapsed / total));
+  } else if (phase === "POST_COOLDOWN_UNCLAIMED") {
+    clockLabel.textContent = "READY";
+    secondsLeft = 0;
+    pct = 1;
+  } else {
+    clockLabel.textContent = "TIME";
+    secondsLeft = 0;
+    pct = 0;
+  }
+
+  clockDisplay.textContent = fmtClock(secondsLeft);
+  barFill.style.width = `${pct * 100}%`;
+
+  // MAIN BUTTON LOGIC (fixed for claim beyond cooldown):
+  // - Winner sees CLAIM once timer has ended and pot is still unclaimed.
+  // - CLAIM stays available/green regardless of cooldown end.
+  // - PLAY is still available when appropriate (IDLE/ACTIVE/POST_COOLDOWN_UNCLAIMED).
+  const connected = !!walletPubkey;
+
+  // Winner can claim as long as:
+  // - connected
+  // - is current winner
+  // - unclaimed
+  // - game enabled
+  // - timer has ended (now > timerEnd)
+  const timerEnded = latestState.timerEnd > 0 && now > latestState.timerEnd;
+  const shouldShowClaim = connected && isWinnerConnected && latestState.unclaimed && latestState.enabled && timerEnded;
+
+  // Claim is always armed when shouldShowClaim is true (no cooldown restriction)
+  claimArmed = shouldShowClaim;
+
+  mainMode = shouldShowClaim ? "CLAIM" : "PLAY";
+
+  if (mainMode === "CLAIM") {
+    mainBtn.textContent = "CLAIM";
+    mainBtn.classList.remove("disabled");
+    mainBtn.classList.remove("claimLocked");
+    mainBtn.classList.add("claimArmed"); // keep it green in your CSS
+    mainBtn.disabled = false;
+    mainHint.textContent = "Your win is unclaimed. Claim anytime.";
+    renderWinnerLog();
+    return;
+  }
+
+  // Otherwise: PLAY mode
+  mainBtn.classList.remove("claimLocked", "claimArmed");
+
+  // Can play only in ACTIVE/IDLE/POST_COOLDOWN_UNCLAIMED
+  const canPlay = connected && latestState.enabled &&
+    (phase === "ACTIVE" || phase === "IDLE" || phase === "POST_COOLDOWN_UNCLAIMED");
+
+  if (canPlay) {
+    mainBtn.textContent = "PLAY";
+    mainBtn.disabled = false;
+    mainBtn.classList.remove("disabled");
+
+    if (phase === "POST_COOLDOWN_UNCLAIMED") {
+      mainHint.textContent = "First press after cooldown auto-pays previous winner, then starts the next round.";
+    } else {
+      mainHint.textContent = "Each Button press is 1000 $BUTTON.";
     }
+  } else {
+    if (!connected) {
+      mainBtn.textContent = "CONNECT";
+      mainBtn.disabled = false; // allow press to connect
+      mainBtn.classList.remove("disabled");
+      mainHint.textContent = "Connect to press. Viewing is available without connecting.";
+    } else {
+      mainBtn.textContent = phase === "COOLDOWN" ? "COOLDOWN" : "WAIT";
+      mainBtn.disabled = true;
+      mainBtn.classList.add("disabled");
 
-    // Check if the game has started
-    const gameStarted = await gameContract.methods.playEnabled().call();
-    if (!gameStarted) {
-        showError("Game has not started");
-        return;
+      if (phase === "COOLDOWN") {
+        mainHint.textContent = "Cooldown active. Winner may claim (if unclaimed).";
+      } else if (!latestState.enabled) {
+        mainHint.textContent = "Game is not enabled.";
+      } else {
+        mainHint.textContent = "Waiting for the next round to start.";
+      }
     }
+  }
 
-    // Check if the game is over
-    const endGameMet = await gameContract.methods.isEndGameMet().call();
-    // if (endGameMet) {
-    //     showError("Game is over");
-    //     return;
-    // }
+  renderWinnerLog();
+}
 
-    // Check if player is currently the winner and the game is overdue
+/////////////////////////////
+// Send transaction helper
+/////////////////////////////
+async function sendTx(ix) {
+  const provider = getWalletProvider();
+  if (!provider?.publicKey) throw new Error("Wallet not connected");
 
-    const isCurrentWinner = connectedAddress.toLowerCase() === currentWinner.toLowerCase();
-    if (endGameMet && isCurrentWinner) {
-        const winnerPaid = await gameWriteContract.methods.winnerPaid().call();
-        if (!winnerPaid) {
+  const { blockhash } = await connection.getLatestBlockhash("finalized");
+  const tx = new Transaction({ recentBlockhash: blockhash, feePayer: provider.publicKey });
+  tx.add(ix);
 
-            await gameWriteContract.methods.payWinner().send({ from: connectedAddress })
-            .on('transactionHash', hash => {
-                console.log('Transaction hash:', hash);
-            })
-            .on('receipt', receipt => {
-                console.log('Transaction receipt:', receipt);
-                showError("You drained the contract!", true, 'https://explorer.degen.tips/address/' + connectedAddress + '?tab=coin_balance_history', 'View Balance History ⤴');
-            })
-            .on('error', error => {
-                console.error('Transaction failed:', error);
-                showError("Transaction Failed: " + error.message);
-            });;
-            return;
-        } else {
-            showError("Game is over");
-            return;
-        }
-    } else if (endGameMet) {
-        showError("Game is over");
-        return;
-    }
+  const signed = await provider.signTransaction(tx);
+  const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false, preflightCommitment: "confirmed" });
+  addLog("Sent tx", solscanTxUrl(sig));
+
+  await connection.confirmTransaction(sig, "confirmed");
+  addLog("Confirmed", solscanTxUrl(sig));
+  return sig;
+}
+
+/////////////////////////////
+// Main button action
+/////////////////////////////
+async function onMain() {
+  if (!latestState) return;
+
+  if (!walletPubkey) {
+    await connectWallet();
+    return;
+  }
+
+  const now = nowSec();
+  const phase = computePhase(latestState, now);
+
+  const winnerPk58 = latestState.currentWinner.toBase58();
+  const isWinnerConnected = walletPubkey && walletPubkey.toBase58() === winnerPk58;
+
+  // CLAIM path (fixed): allow claim whenever timer ended + unclaimed + winner
+  const timerEnded = latestState.timerEnd > 0 && now > latestState.timerEnd;
+  if (isWinnerConnected && latestState.unclaimed && latestState.enabled && timerEnded) {
+    const winnerAta = latestState.currentWinnerAta;
+    const ix = await buildClaimIx({ winnerPk: walletPubkey, winnerAtaPk: winnerAta });
 
     try {
-
-        const balance = await provider.eth.getBalance(connectedAddress);
-        if (balance <= 0) {
-            showError("You don't have any DEGEN!", true, 'https://bridge.degen.tips/', 'Official Bridge ⤴');
-            return;
-        }
-        const isEligible = await isFreePlayEligible();
-        const playAmount = isEligible ? '0' : provider.utils.toWei('69', 'ether');
-        // Check balance only if not using free play
-        if (!isEligible) {
-            await gameWriteContract.methods.play().send({ from: connectedAddress, value: playAmount })
-            .on('transactionHash', hash => {
-                console.log('Transaction hash:', hash);
-            })
-            .on('receipt', receipt => {
-                console.log('Transaction receipt:', receipt);
-            })
-            .on('error', error => {
-                console.error('Transaction failed:', error);
-                showError("Transaction Failed: " + error.message);
-            });;
-        } else {
-            await gameWriteContract.methods.freePlay().send({ from: connectedAddress })
-            .on('transactionHash', hash => {
-                console.log('Transaction hash:', hash);
-            })
-            .on('receipt', receipt => {
-                console.log('Transaction receipt:', receipt);
-            })
-            .on('error', error => {
-                console.error('Transaction failed:', error);
-                showError("Transaction Failed: " + error.message);
-            });;
-        }
-    } catch (error) {
-        console.error('Transaction rejected or error occurred:', error);
-        showError("Transaction failed: " + error.message);
+      mainBtn.disabled = true;
+      addLog("Claim: signing…");
+      await sendTx(ix);
+      addLog("Claim complete");
+    } catch (e) {
+      console.error(e);
+      addLog(`Claim failed: ${e.message || e.toString()}`);
+      alert(`Claim failed: ${e.message || e.toString()}`);
+    } finally {
+      await refreshReadOnly();
     }
-}
-
-
-async function connectToProvider() {
-    if (window.ethereum) {
-        window.web3 = new Web3(ethereum);
-        try {
-            // Requesting user accounts
-            accounts = await ethereum.request({ method: 'eth_requestAccounts' });
-
-            // Get the current chain ID
-            chainId = await ethereum.request({ method: 'net_version' });
-
-            // Check if the connected chain ID is 0x27bc86aa
-            if (chainId !== '0x27bc86aa' && chainId !== '666666666') {
-                console.error('Please connect to Degen Chain');
-                showError("Please Connect to Degen Chain", false, '');
-                await ethereum.request({
-                    method: 'wallet_addEthereumChain',
-                    params: [{
-                        chainId: '0x27bc86aa', // Must be a hexadecimal number, e.g., '0x1' for Ethereum Mainnet
-                        chainName: 'Degen',
-                        nativeCurrency: {
-                            name: 'Degen',
-                            symbol: 'DEGEN', // Typically 2-4 characters
-                            decimals: 18
-                        },
-                        rpcUrls: ['https://rpc.degen.tips'], // The RPC URL for the network
-
-                    }],
-                });
-                await ethereum.request({
-                    method: 'wallet_switchEthereumChain',
-                    params: [{ chainId: '0x27bc86aa' }],
-                });
-                
-            }
-
-            // User is connected to the correct chain, continue with the application logic
-            connectedAddress = accounts[0];
-            const ensName = await ethProvider.lookupAddress(connectedAddress);
-            updatePlayButtonText(blockTimer, currentWinner);
-            if (ensName != null){
-                updateDisplayedAddress(ensName);
-            } else {
-                updateDisplayedAddress(connectedAddress.substring(0, 6));
-            }
-
-
-            
-            ethereum.on('accountsChanged', handleAccountsChanged);
-            
-        } catch (error) {
-            console.error('User denied account access or an error occurred:', error);
-        }
-    } else if (window.web3) {
-        window.web3 = new Web3(web3.currentProvider);
-    } else {
-        showError("You dont have a Web3 Wallet!", true, 'https://metamask.io/', 'Install Metamask ⤴') 
-        console.error('No web3 instance detected');
-    }
-}
-
-
-async function handleAccountsChanged() {
-    if (connectedAddress == undefined) {
-        return;
-    } else {
-        accounts = await ethereum.request({ method: 'eth_requestAccounts' });
-        console.log("Handling Account Change");
-        if (accounts[0] != connectedAddress){
-            connectedAddress = accounts[0];
-            updatePlayButtonText(blockTimer, currentWinner);
-            updateWinnerText(currentWinner.substring(0, 8), winnerElement);
-            const ensName = await getEns(connectedAddress);
-            if (ensName != null){
-                updateDisplayedAddress(ensName);
-            } else {
-                updateDisplayedAddress(connectedAddress.substring(0, 6));
-            }
-        }
-               
-    }
-    
-}
-
-function updateDisplayedAddress(address) {
-    const walletAddressDiv = document.getElementById('walletAddress');
-    if (address) {
-      walletAddressDiv.textContent = `Connected: ${address}`;
-    } else {
-      walletAddressDiv.textContent = 'Not Connected';
-    }
+    return;
   }
 
-function formatTime(blocksToWin) {
-    const seconds = Math.floor(Number(blocksToWin) / 4);
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}:${remainingSeconds < 10 ? '0' : ''}${remainingSeconds}`;
+  // Play path
+  const playerAta = findAta(walletPubkey, mintPk);
+
+  const ataInfo = await connection.getAccountInfo(playerAta, "confirmed");
+  if (!ataInfo) {
+    alert("Your ATA for this mint does not exist. Receive tokens first (or create the ATA).");
+    return;
+  }
+
+  // previousWinnerAta must always be a valid token account for this mint.
+  // If currentWinnerAta is default/uninitialized, pass your own ATA.
+  const DEFAULT_PUBKEY = "11111111111111111111111111111111";
+  let prevWinnerAta = latestState.currentWinnerAta;
+  if (prevWinnerAta.toBase58() === DEFAULT_PUBKEY) prevWinnerAta = playerAta;
+
+  const ix = await buildPlayIx({
+    playerPk: walletPubkey,
+    playerAtaPk: playerAta,
+    previousWinnerAtaPk: prevWinnerAta,
+  });
+
+  try {
+    mainBtn.disabled = true;
+    addLog("Play: signing…");
+    await sendTx(ix);
+    addLog("Play complete");
+  } catch (e) {
+    console.error(e);
+    addLog(`Play failed: ${e.message || e.toString()}`);
+    alert(`Play failed: ${e.message || e.toString()}`);
+  } finally {
+    await refreshReadOnly();
+  }
 }
 
-async function getEns (address) {
-    const ensName = await ethProvider.lookupAddress(address);
-
-    if (ensName != null){
-        return ensName;
-    } else {
-        return address.substring(0, 8);
-    }
-
-}
-
-
-// Get the modal
-var modal = document.getElementById("errorModal");
-
-// Get the <span> element that closes the modal
-var closeButton = document.getElementsByClassName("close-button")[0];
-
-// When the user clicks on the button, open the modal 
-function showError(message, shouldRedirect = false, redirectUrl = '', buttonText = 'Click Here') {
-    const modal = document.getElementById('errorModal');
-    const errorMessage = document.getElementById('errorMessage');
-    const errorButton = document.getElementById('errorButton');
-
-    // Set the error message
-    errorMessage.textContent = message;
-
-    // Configure the button if redirection is needed
-    if (shouldRedirect) {
-        errorButton.textContent = buttonText; // Set custom button text
-        errorButton.style.display = 'inline-block'; // Show the button
-        errorButton.onclick = function() { // Set the redirect action
-            window.open(redirectUrl, '_blank');
-        };
-    } else {
-        errorButton.style.display = 'none'; // Hide the button if not needed
-    }
-
-    // Show the modal
-    modal.style.display = 'block';
-
-    // Add event listener for closing the modal
-    document.querySelector('.close-button').onclick = function() {
-        modal.style.display = 'none';
-    };
-}
-
-// When the user clicks on <span> (x), close the modal
-closeButton.onclick = function() {
-    modal.style.display = "none";
-}
-
-// When the user clicks anywhere outside of the modal, close it
-window.onclick = function(event) {
-    if (event.target == modal) {
-        modal.style.display = "none";
-    }
-}
-
-
-window.addEventListener('load', async () => {
-    // Initialize Game Variables
-	currentWinner = await gameContract.methods.currentWinner().call();
-	var currentBlock = await gameContract.methods.getBlock().call();
-	var blockTarget = await gameContract.methods.blockTarget().call();
-	var pot = await gameContract.methods.pot().call();
-    blockTimer = blockTarget - currentBlock;
-
-    var targetProgress = targetProgress = ((1000 - blockTimer) / 1000) * 100;
-    var potValue = parseFloat(degenProvider.utils.fromWei(pot, 'ether'));
-    updatePlayButtonText(blockTimer, currentWinner);
-    updateWinnerText(await getEns(currentWinner), winnerElement);
-    potElement.textContent = (potValue.toFixed(0)) + "  DEGEN";
-    blocksToGoElement.textContent = Math.max(0, Math.min(1000, blockTimer));
-    targetProgressElement.style.width = `${Math.max(0, Math.min(100, targetProgress))}%`;
-
-
-
-setInterval(async () => {
-
-    //Update Game Vars
-    var newBlock = await gameContract.methods.blockTarget().call();
-    var newPot = await gameContract.methods.pot().call();
-
-    if (newPot !== pot || newBlock !== blockTarget){
-        //Update the page when change to game state
-        currentWinner = await gameContract.methods.currentWinner().call();
-        pot = newPot
-        blockTarget = newBlock
-        //ENS Name
-    } 
-
-    //Update the timer every time
-    currentBlock = await gameContract.methods.getBlock().call();
-    blockTimer = blockTarget - currentBlock;
-	targetProgress = ((1000 - blockTimer) / 1000) * 100;
-	await updatePlayButtonText(blockTimer, currentWinner);
-    updateWinnerText(await getEns(currentWinner), winnerElement);
-
-    //Additional Game Stats
-	//blockElement.textContent = currentBlock;
-    if (blockTimer < 0){
-        blocksToGoElement.textContent = '0';
-        timeEstElement.textContent = '';
-        currentWinner = await gameContract.methods.currentWinner().call();
-        
-
-    } else {
-        //getBlockInterval(startBlock, currentBlock);
-        blocksToGoElement.textContent = Math.max(0, Math.min(1000, blockTimer));
-        timeEstElement.innerHTML = "(" + formatTime(blockTimer) + ")"
-        
-    }
-    
-    //Show Progress Bar
-    targetProgressElement.style.width = `${Math.max(0, Math.min(100, targetProgress))}%`;
-
-    //Format and Update Pot
-    potValue = parseFloat(degenProvider.utils.fromWei(pot, 'ether'));
-    potElement.textContent = parseInt(potValue).toLocaleString() + " DEGEN";
-
-}, 1000);
-
-
-
-
-
-
+/////////////////////////////
+// Details toggle
+/////////////////////////////
+toggleDetailsBtn.addEventListener("click", () => {
+  detailsPanel.classList.toggle("hidden");
+  toggleDetailsBtn.textContent = detailsPanel.classList.contains("hidden") ? "Details" : "Hide";
 });
 
+/////////////////////////////
+// INIT
+/////////////////////////////
+connectBtn.addEventListener("click", connectWallet);
+disconnectBtn.addEventListener("click", disconnectWallet);
+mainBtn.addEventListener("click", onMain);
 
+(async function boot() {
+  connection = new Connection(rpcUrl(), "confirmed");
 
+  // initial details links
+  programLink.textContent = programIdPk.toBase58();
+  programLink.href = solscanAccountUrl(programIdPk.toBase58());
+  stateLink.textContent = statePk.toBase58();
+  stateLink.href = solscanAccountUrl(statePk.toBase58());
+  vaultLink.textContent = vaultPk.toBase58();
+  vaultLink.href = solscanAccountUrl(vaultPk.toBase58());
+  mintLink.textContent = mintPk.toBase58();
+  mintLink.href = solscanAccountUrl(mintPk.toBase58());
 
+  // Try trusted connect
+  const provider = getWalletProvider();
+  if (provider?.isPhantom) {
+    try {
+      const resp = await provider.connect({ onlyIfTrusted: true });
+      if (resp?.publicKey) {
+        walletPubkey = resp.publicKey;
+        disconnectBtn.style.display = "inline-block";
+        connectBtn.style.display = "none";
+        addLog(`Wallet auto-connected: ${walletPubkey.toBase58()}`);
+      }
+    } catch {}
+  }
 
+  await refreshReadOnly();
+  setInterval(refreshReadOnly, 6000);
+  setInterval(render, 250);
 
+  // enable button once loaded
+  mainBtn.disabled = false;
+})();

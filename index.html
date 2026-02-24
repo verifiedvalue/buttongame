@@ -1,79 +1,166 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Button Game</title>
-  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css">
-  <script src="https://cdn.jsdelivr.net/npm/web3@1.5.2/dist/web3.min.js"></script>
-  <script src="https://cdn.ethers.io/lib/ethers-5.2.umd.min.js"
-  type="application/javascript"></script>
-  <script defer src="app.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
 </head>
 <body>
-  <div class="top-bar">
-    <a href="https://warpcast.com/cobsy.eth" target="_blank" class="signature">cobsy was here</a>
-    <div id="walletAddress" class="wallet-address">Not Connected</div>
-  </div>
-  <header>
+  <div class="console">
+    <header class="topbar">
+      <div class="title">BUTTON GAME</div>
 
-    <h1>BUTTON GAME</h1>
-  </header>
-  
-  
-    <p style="font-size: 2vw; padding-top: 10px; padding-bottom: 10px;" class="green-text">LAST DEGEN TO PRESS THE BUTTON WINS</p>
-
-    
-    <div class="gameBox">
-    <p id="current" style="font-size: 2vw; padding-top: 10px; width: 100%;">LAST DEGEN: <span id="winner"></span></p>
-    <p style="font-size: 2vw;">POT: <span id="pot" class="green-text"></span></p>
-    </div>
-
-  
-  <button id="playButton" onclick="playGame()">LOADING GAME</button>
-  <!-- <p style="padding: 10px; text-align: center;"><span id="connectStatus" style="color: #721CB8;"></span></p> -->
-
-  <div style="padding-top: 20px;">
-    <p style="padding-bottom: 1%; "><span id="blocksToGo" style="color: #80C423;"></span> BLOCKS TO GO <span id="timeEst" style="color: #ffffff;"></span></p>
-    <div class="progress-container">
-      <div class="progress-bar">
-        <div class="progress" id="target-progress"></div>
+      <div class="walletArea">
+        <div id="walletStatus" class="walletPill">
+          <span id="walletDot" class="dot"></span>
+          <span id="walletText">Not connected</span>
+        </div>
+        <button id="connectBtn" class="chip">Connect</button>
+        <button id="disconnectBtn" class="chip ghost" style="display:none;">Disconnect</button>
       </div>
-    </div>
-    
-    <!-- <div style="position: relative; margin-top: 5px; background-color: white;">
-      <span id="300" class="markings" style="position: absolute; left: 0%;">300</span>
-      <span id="200" class="markings" style="position: absolute; left: 34%; transform: translateX(-25%);">200</span>
-      <span id="100" class="markings" style="position: absolute; left: 66%; transform: translateX(-25%);">100</span>
-      <span id="50" class="markings" style="position: absolute; left: 84%; transform: translateX(-25%);">50</span>
-      <span id="25" class="markings" style="position: absolute; left: 92%; transform: translateX(-25%);">25</span>
-    </div> -->
-    
-    <!-- <p style="padding-top: 10%;">FINAL BLOCK: <span id="target"></span></p>
-    <p>LAST CONFIRMED BLOCK: <span id="block"></span></p>
-    <p>BLOCKS FROM START: <span id="currentPeriod"></span></p> -->
+    </header>
 
+    <main class="centerStack">
+      <!-- POT -->
+      <div class="potBlock">
+        <div class="potLabel">POT</div>
+        <div id="potDisplay" class="potValue">—</div>
+        <div class="potCurrency">$BUTTON</div>
+        <div class="potSub" id="phaseText">Loading…</div>
+      </div>
+
+      <!-- BUTTON -->
+      <button id="mainBtn" class="playBtn disabled" disabled>LOADING</button>
+      <div id="mainHint" class="hint">Reading on-chain data…</div>
+
+      <!-- TIMER BAR + CLOCK -->
+      <div class="timerWrap">
+        <div class="bar" aria-label="Timer bar">
+          <div id="barFill" class="fill"></div>
+        </div>
+        <div class="clockWrap">
+          <div class="clockLabel" id="clockLabel">TIME</div>
+          <div class="clock" id="clockDisplay">00:00</div>
+        </div>
+      </div>
+
+      <!-- small secondary line -->
+      <div class="micro" id="microLine">Last player to press the button wins the pot.</div>
+
+      <!-- NEW: Right-side thresholds / progress panel -->
+      <section id="thresholdPanel" class="thresholdPanel" aria-label="Pot unlock thresholds">
+        <div class="tpHeader">
+          <div class="tpTitle">Pot Unlocks</div>
+          <div class="tpSub" id="tpSub">—</div>
+        </div>
+
+        <div class="tpBigRow">
+          <div class="tpBigLabel">Vault Balance</div>
+          <div class="tpBigValue" id="tpVaultBalance">—</div>
+        </div>
+        <div class="tpBigRow">
+          <div class="tpBigLabel">Current Tier</div>
+          <div class="tpBigValue" id="tpProjectedPot">—</div>
+        </div>
+
+        <div class="tpMiniRow">
+          <div>Plays: <strong id="tpPlays">—</strong></div>
+          <div>Current divisor: <strong id="tpDivisor">—</strong></div>
+        </div>
+
+        <div class="tpBarWrap">
+          <div class="tpBar">
+            <div class="tpBarFill" id="tpBarFill" style="width:0%"></div>
+          </div>
+          <div class="tpBarLabels">
+            <span id="tpBarLeft">—</span>
+            <span id="tpBarRight">—</span>
+          </div>
+        </div>
+
+        <div class="tpTiers">
+          <div class="tpTier" id="tier0">
+            <div class="tpTierLeft">
+              <div class="tpTierName">250 Plays</div>
+              <div class="tpTierDesc">Pot = Vault / 20</div>
+            </div>
+            <div class="tpTierRight" id="tier0Reward">—</div>
+          </div>
+
+          <div class="tpTier" id="tier1">
+            <div class="tpTierLeft">
+              <div class="tpTierName">2500 Plays</div>
+              <div class="tpTierDesc">Pot = Vault / 10</div>
+            </div>
+            <div class="tpTierRight" id="tier1Reward">—</div>
+          </div>
+
+          <div class="tpTier" id="tier2">
+            <div class="tpTierLeft">
+              <div class="tpTierName">25000 Plays</div>
+              <div class="tpTierDesc">Pot = Vault / 5</div>
+            </div>
+            <div class="tpTierRight" id="tier2Reward">—</div>
+          </div>
+        </div>
+
+        <div class="tpFoot" id="tpFoot">Rewards are projected from current vault balance.</div>
+      </section>
+
+      <div id="winnerLog" class="log"></div>
+      <div class="detailsToggle">
+        <button id="toggleDetailsBtn">Details</button>
+      </div>
+
+      <section id="detailsPanel" class="detailsPanel hidden">
+        <div class="detailsCard">
+          <div class="row">
+            <span class="k">Program</span>
+            <a id="programLink" class="v mono" target="_blank" rel="noreferrer"></a>
+          </div>
+          <div class="row">
+            <span class="k">Game</span>
+            <a id="stateLink" class="v mono" target="_blank" rel="noreferrer"></a>
+          </div>
+          <div class="row">
+            <span class="k">Vault</span>
+            <a id="vaultLink" class="v mono" target="_blank" rel="noreferrer"></a>
+          </div>
+          <div class="row">
+            <span class="k">Mint</span>
+            <a id="mintLink" class="v mono" target="_blank" rel="noreferrer"></a>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="row">
+            <span class="k">Winner</span>
+            <a id="winnerLink" class="v mono" target="_blank" rel="noreferrer">—</a>
+          </div>
+          <div class="row">
+            <span class="k">Claimed</span>
+            <span id="unclaimedText" class="v mono">—</span>
+          </div>
+          <div class="row">
+            <span class="k">Play Cost</span>
+            <span id="playCostText" class="v mono">—</span>
+          </div>
+          <div class="row">
+            <span class="k">Vault</span>
+            <span id="vaultText" class="v mono">—</span>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="logsTitle">Activity</div>
+          <div id="activityLog" class="log"></div>
+        </div>
+      </section>
+    </main>
   </div>
-  <div style="text-align: center;">
-    <ul class="top-hat-list">
-      <li class="list"><span class="top-hat-icon">🎩</span><span class="list-text">THE GAME ENDS WHEN THE BLOCK COUNTDOWN REACHES ZERO</span></li>
-      <li class="list"><span class="top-hat-icon">🎩</span><span class="list-text">THE BLOCK COUNTDOWN IS RESET WITH EACH BUTTON PRESS</span></li>
-      <li class="list"><span class="top-hat-icon">🎩</span><span class="list-text">THE LAST DEGEN CAN CLAIM THE POT WHEN THE GAME ENDS</span></li>
-      <li class="list"><span class="top-hat-icon">🎩</span><span class="list-text">PRESS THE BUTTON TO BECOME THE LAST DEGEN</span></li>
-    </ul>
-  </div>
-  <p style="font-size: 1vw; padding-top: 0%;">90% OF PAID PLAY IS ADDED TO THE POT. 10% TO BUTTON GAME TEAM.</p>
-  <footer style="background-color: #f4f4f400; padding-top: 50px; text-align: center;">
-    <a style="color: white" href="https://bridge.degen.tips/" target="_blank">Degen Bridge</a> | <a style="color: white" href="https://warpcast.com/~/channel/buttongame" target="_blank">Warpcast</a> | <a style="color: white" href="https://explorer.degen.tips/address/0xEEbD89daFA4Cb57ED0342A5405b84D2f7a059e96" target="_blank">Contract</a> | <a style="color: white" href="whitepaper.html" target="_blank">Whitepaper</a> | <a style="color: white" href="leaderboard.html" target="_blank">Leaderboard</a>
-  </footer>
-  <!-- Error Pop-up Modal -->
-  <div id="errorModal" class="modal">
-    <div class="modal-content">
-        <span class="close-button">&times;</span>
-        <h2>Uh oh!</h2>
-        <p id="errorMessage">Something went wrong!</p>
-        <button id="errorButton" style="display: none;">Take Action</button> <!-- Initially hidden -->
-    </div>
-  </div>
+
+  <script src="app.js"></script>
 </body>
 </html>
