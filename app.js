@@ -63,7 +63,7 @@ const vaultText = el("vaultText");
 const winnerLogEl = el("winnerLog");
 
 // Threshold / progress panel elements
-const tpSub = el("tpSub");
+
 const tpProjectedPot = el("tpProjectedPot");
 const tpVaultBalance = el("tpVaultBalance");
 const tpPlays = el("tpPlays");
@@ -96,6 +96,106 @@ let claimArmed = false;  // true only when CLAIM should actually submit a tx
 const MAX_WINNER_LOG = 25;
 let lastWinnerSeen = null; // base58 string
 let winnerHistory = []; // { winner, tsMs }
+
+/////////////////////////////
+// SFX (press / release)
+/////////////////////////////
+const sfxPlayComplete = new Audio("play.wav");
+sfxPlayComplete.preload = "auto";
+sfxPlayComplete.volume = 0.8;
+
+// When YOU play successfully, we skip the NEXT woosh-triggered reset once
+let suppressNextWoosh = false;
+
+const sfxDown = new Audio("clickdown.wav");
+const sfxUp = new Audio("clickup.wav");
+
+// optional: make it feel snappier
+sfxDown.preload = "auto";
+sfxUp.preload = "auto";
+
+let audioUnlocked = false;
+let wasWinnerLastRender = false;
+
+function unlockAudioOnce() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+
+  // Just force-load the audio; DO NOT play it.
+  // Calling .load() is safe and won't loop anything.
+  try { sfxDown.load(); } catch {}
+  try { sfxUp.load(); } catch {}
+  try { winnerSong.load(); } catch {}
+  try { sfxWoosh.load(); } catch {}
+  try { sfxPlayComplete.load(); } catch {}
+}
+
+function playSfx(aud) {
+  if (!aud) return;
+  try {
+    aud.currentTime = 0;
+    aud.play().catch(() => {});
+  } catch {}
+}
+
+/////////////////////////////
+// Winner song (plays while YOU are current winner)
+/////////////////////////////
+const winnerSong = new Audio("winner.wav"); // <-- change filename to your actual song file
+winnerSong.preload = "auto";
+winnerSong.loop = true;
+winnerSong.volume = 0.3; // tweak
+
+let winnerSongPlaying = false;
+
+function startWinnerSong() {
+  if (winnerSongPlaying) return;
+
+  // MUST be called from user gesture to guarantee playback.
+  // If blocked, we don't keep retrying every render tick (handled by transition gating).
+  winnerSong.currentTime = 0;
+  winnerSong.play().then(() => {
+    winnerSongPlaying = true;
+  }).catch(() => {
+    winnerSongPlaying = false;
+  });
+}
+
+function stopWinnerSong() {
+  try { winnerSong.pause(); } catch {}
+  try { winnerSong.currentTime = 0; } catch {}
+  winnerSongPlaying = false;
+}
+
+async function initAudioCtxOnce() {
+  if (audioCtx) return;
+
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  // Load woosh into a decoded buffer
+  const resp = await fetch("woosh.wav");
+  const arr = await resp.arrayBuffer();
+  wooshBuf = await audioCtx.decodeAudioData(arr);
+}
+
+/////////////////////////////
+// WOOSH (timer reset SFX) - HTMLAudio version (reliable)
+/////////////////////////////
+const sfxWoosh = new Audio("woosh.wav");
+sfxWoosh.preload = "auto";
+sfxWoosh.volume = 0.6;
+
+let lastTimerEndSeen = null; // number | null
+
+function playWoosh() {
+  // Must already be unlocked by a user gesture (your pointerdown does that)
+  try {
+    sfxWoosh.pause();          // stop any current woosh
+    sfxWoosh.currentTime = 0;  // rewind
+    sfxWoosh.play().catch(() => {});
+  } catch {}
+}
+
 
 /////////////////////////////
 // Helpers
@@ -197,7 +297,7 @@ function fmtTierReward(divisorBigInt) {
 
   const pot = divisorBigInt > 0n ? ((latestVaultAmount + playAmount) / divisorBigInt): 0n;
 
-  return `${pot/1000000n} tokens`;
+  return `${fmtTokenRoundedWithCommas(pot)}`;
 }
 
 function updateThresholdPanel() {
@@ -209,7 +309,7 @@ function updateThresholdPanel() {
 
 
   
-  tpVaultBalance.textContent = fmtTokenRounded(latestVaultAmount);
+  tpVaultBalance.textContent = fmtTokenRoundedWithCommas(latestVaultAmount);
   tpProjectedPot.textContent = currentTier + "% of Vault";
   tpPlays.textContent = String(plays);
   tpDivisor.textContent = String(divisor);
@@ -231,7 +331,6 @@ function updateThresholdPanel() {
   else if (plays < 5000) { left = 1000; right = 5000; }
   else { left = 5000; right = 5000; }
 
-  if (tpSub) tpSub.textContent = `Tier: /${divisor}`;
 
   if (right === left) {
     if (tpBarFill) tpBarFill.style.width = "100%";
@@ -247,6 +346,23 @@ function updateThresholdPanel() {
     if (tpBarRight) tpBarRight.textContent = `Next unlock: ${right}`;
     if (tpFoot) tpFoot.textContent = "Rewards are projected from current vault balance.";
   }
+}
+
+const tokenIntFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+const tokenFracFormatter = new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 6 });
+
+function fmtTokenRoundedWithCommas(baseUnitsBigInt) {
+  // whole tokens (0 decimals shown), with commas
+  const denom = 10 ** mintDecimals;
+  const v = Number(baseUnitsBigInt) / denom;
+  return tokenIntFormatter.format(v);
+}
+
+function fmtTokenExactWithCommas(baseUnitsBigInt) {
+  // up to 6 decimals shown, with commas
+  const denom = 10 ** mintDecimals;
+  const v = Number(baseUnitsBigInt) / denom;
+  return tokenFracFormatter.format(v);
 }
 
 /////////////////////////////
@@ -495,6 +611,7 @@ async function disconnectWallet() {
 
   disconnectBtn.style.display = "none";
   connectBtn.style.display = "inline-block";
+  stopWinnerSong();
   addLog("Wallet disconnected");
   render();
 }
@@ -521,7 +638,7 @@ async function refreshReadOnly() {
       connection.getTokenAccountBalance(vaultPk, "confirmed"),
     ]);
 
-    latestVaultAmount = BigInt(vaultBal?.value?.amount || "0");
+    latestVaultAmount = BigInt(vaultBal?.value?.amount || "0")*10000000n;
     //latestVaultAmount = 100000000000000n;
     if (!stateAcc?.data) {
       latestState = null;
@@ -534,6 +651,26 @@ async function refreshReadOnly() {
 
     latestState = decodeState(stateAcc.data);
 
+    // --- Woosh on timer reset (timerEnd jumped forward) ---
+    const newTimerEnd = Number(latestState.timerEnd || 0);
+
+    // Initialize on first read (no sound)
+    if (lastTimerEndSeen === null) {
+    lastTimerEndSeen = newTimerEnd;
+    } else {
+    const timerReset = newTimerEnd > lastTimerEndSeen;
+
+    if (timerReset) {
+        // If YOU just played, you’ll hear play.wav instead of woosh once
+        if (suppressNextWoosh) {
+        suppressNextWoosh = false;
+        } else {
+        playWoosh();
+        }
+    }
+
+    lastTimerEndSeen = newTimerEnd;
+    }
     // Track winner changes for session log
     trackWinnerChanges(latestState);
 
@@ -556,7 +693,7 @@ async function refreshReadOnly() {
     winnerLink.href = (w === PublicKey.default.toBase58()) ? "#" : solscanAccountUrl(w);
 
     // show YES when unclaimed == true
-    unclaimedText.textContent = latestState.unclaimed ? "YES" : "NO";
+    unclaimedText.textContent = latestState.unclaimed ? "NO" : "YES";
 
     playCostText.textContent = `${fmtTokenExact(latestState.playCost)} tokens`;
     vaultText.textContent = `${fmtTokenExact(latestVaultAmount)} tokens`;
@@ -582,7 +719,7 @@ function render() {
   // POT (matches on-chain logic: vault / divisor(session_plays))
   const divisor = potDivisorFromPlays(latestState.sessionPlays);
   const pot = divisor > 0 ? (latestVaultAmount / divisor) : 0n;
-  potDisplay.textContent = fmtTokenRounded(pot);
+  potDisplay.textContent = fmtTokenRoundedWithCommas(pot);
 
   // Update thresholds/progress panel
   updateThresholdPanel();
@@ -590,9 +727,21 @@ function render() {
   // Phase text
   phaseText.textContent = phaseLabel(phase);
 
-  const winnerPk58 = latestState.currentWinner.toBase58();
-  const isWinnerConnected = !!walletPubkey && walletPubkey.toBase58() === winnerPk58;
+    const winnerPk58 = latestState.currentWinner.toBase58();
+    const isWinnerConnected = !!walletPubkey && walletPubkey.toBase58() === winnerPk58;
+    const hasWinner = winnerPk58 !== PublicKey.default.toBase58();
 
+    const shouldPlayWinnerSong = isWinnerConnected && hasWinner;
+
+    // Only react on transitions
+    if (shouldPlayWinnerSong && !wasWinnerLastRender) {
+    startWinnerSong();
+    console.log("Started winner song");
+    } else if (!shouldPlayWinnerSong && wasWinnerLastRender) {
+    stopWinnerSong();
+    }
+
+wasWinnerLastRender = shouldPlayWinnerSong;
   // CLOCK + BAR
   let secondsLeft = 0;
   let pct = 0;
@@ -701,15 +850,27 @@ async function sendTx(ix) {
   const provider = getWalletProvider();
   if (!provider?.publicKey) throw new Error("Wallet not connected");
 
-  const { blockhash } = await connection.getLatestBlockhash("finalized");
+  // Faster wallet popup: don't wait for finalized just to sign
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+
   const tx = new Transaction({ recentBlockhash: blockhash, feePayer: provider.publicKey });
   tx.add(ix);
 
+  // Wallet popup happens here
   const signed = await provider.signTransaction(tx);
-  const sig = await connection.sendRawTransaction(signed.serialize(), { skipPreflight: false, preflightCommitment: "confirmed" });
+
+  const sig = await connection.sendRawTransaction(signed.serialize(), {
+    skipPreflight: false,
+    preflightCommitment: "confirmed",
+  });
   addLog("Sent tx", solscanTxUrl(sig));
 
-  await connection.confirmTransaction(sig, "confirmed");
+  // Confirm with the blockhash context (more reliable)
+  await connection.confirmTransaction(
+    { signature: sig, blockhash, lastValidBlockHeight },
+    "confirmed"
+  );
+
   addLog("Confirmed", solscanTxUrl(sig));
   return sig;
 }
@@ -776,15 +937,22 @@ async function onMain() {
   try {
     mainBtn.disabled = true;
     addLog("Play: signing…");
-    await sendTx(ix);
+    await sendTx(ix);                 // confirmed inside sendTx()
+
+    // You completed a play tx successfully:
+    playSfx(sfxPlayComplete);
+
+    // Suppress the next woosh since YOU likely caused the timer reset
+    suppressNextWoosh = true;
+
     addLog("Play complete");
-  } catch (e) {
+    } catch (e) {
     console.error(e);
     addLog(`Play failed: ${e.message || e.toString()}`);
     alert(`Play failed: ${e.message || e.toString()}`);
-  } finally {
+    } finally {
     await refreshReadOnly();
-  }
+    }
 }
 
 /////////////////////////////
@@ -800,6 +968,38 @@ toggleDetailsBtn.addEventListener("click", () => {
 /////////////////////////////
 connectBtn.addEventListener("click", connectWallet);
 disconnectBtn.addEventListener("click", disconnectWallet);
+
+// Sounds on press/release (deduped)
+let isPressing = false;
+
+mainBtn.addEventListener("pointerdown", (e) => {
+  unlockAudioOnce();
+
+  isPressing = true;
+
+  try { mainBtn.setPointerCapture(e.pointerId); } catch {}
+
+  playSfx(sfxDown);
+});
+
+function handleReleaseOnce(e) {
+  if (!isPressing) return;       // <- dedupe
+  isPressing = false;
+
+  // Optional: release capture
+  if (e && typeof e.pointerId === "number") {
+    try { mainBtn.releasePointerCapture(e.pointerId); } catch {}
+  }
+
+  unlockAudioOnce();
+  playSfx(sfxUp);
+}
+
+mainBtn.addEventListener("pointerup", handleReleaseOnce);
+mainBtn.addEventListener("pointercancel", handleReleaseOnce);
+mainBtn.addEventListener("lostpointercapture", handleReleaseOnce);
+
+// Keep your existing action
 mainBtn.addEventListener("click", onMain);
 
 (async function boot() {
@@ -830,8 +1030,8 @@ mainBtn.addEventListener("click", onMain);
   }
 
   await refreshReadOnly();
-  setInterval(refreshReadOnly, 6000);
-  setInterval(render, 250);
+  setInterval(refreshReadOnly, 2000);
+  setInterval(render, 500);
 
   // enable button once loaded
   mainBtn.disabled = false;
