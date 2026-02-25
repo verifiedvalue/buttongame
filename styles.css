@@ -309,6 +309,19 @@ body{
 
 .hidden{ display:none; }
 
+#audioControls button{
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 2px solid rgba(255,255,255,.15);
+  background: rgba(0, 0, 0, 0.08);
+  color: #353535;
+  cursor: pointer;
+}
+
+#audioControls button:hover{
+  background: rgba(255,255,255,.14);
+}
+
 /* -------------------------
    NEW: Thresholds / progress panel
    ------------------------- */

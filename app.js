@@ -11,6 +11,13 @@ const VAULT = "CbpG1mzYkbPKAKcVMDsjfPnqJhDdHceHXuuQ9UUeA9K";
 
 let CLUSTER = "devnet"; // change if needed
 
+// Poll tuning (critical state stays frequent; expensive reads are gated)
+const STATE_POLL_MS = 2000;      // keep game state responsive
+const UI_TICK_MS    = 100;       // smooth clock/progress UI (no RPC)
+const VAULT_TTL_MS  = 30000;     // safety refresh for vault occasionally, even if plays don't change
+const FAST_SYNC_MS  = 250;       // post-tx quick state sync burst
+const FAST_SYNC_TRIES = 12;      // ~3 seconds
+
 /////////////////////////////
 // SOLANA
 /////////////////////////////
@@ -59,11 +66,10 @@ const unclaimedText = el("unclaimedText");
 const playCostText = el("playCostText");
 const vaultText = el("vaultText");
 
-// Winner log container (add to HTML as described)
-const winnerLogEl = el("winnerLog");
+// Winner log container
+const winnerLogEl = el("winnerNow");
 
 // Threshold / progress panel elements
-
 const tpProjectedPot = el("tpProjectedPot");
 const tpVaultBalance = el("tpVaultBalance");
 const tpPlays = el("tpPlays");
@@ -90,112 +96,191 @@ let latestState = null;
 let latestVaultAmount = 0n;
 
 let mainMode = "PLAY";   // "PLAY" | "CLAIM"
-let claimArmed = false;  // true only when CLAIM should actually submit a tx
+let claimArmed = false;
 
 // ---- Session-only winner history ----
 const MAX_WINNER_LOG = 25;
 let lastWinnerSeen = null; // base58 string
-let winnerHistory = []; // { winner, tsMs }
+let winnerHistory = [];    // { winner, tsMs, isInitial }
 
-/////////////////////////////
-// SFX (press / release)
-/////////////////////////////
-const sfxPlayComplete = new Audio("play.wav");
-sfxPlayComplete.preload = "auto";
-sfxPlayComplete.volume = 0.8;
-
-// When YOU play successfully, we skip the NEXT woosh-triggered reset once
-let suppressNextWoosh = false;
-
-const sfxDown = new Audio("clickdown.wav");
-const sfxUp = new Audio("clickup.wav");
-
-// optional: make it feel snappier
-sfxDown.preload = "auto";
-sfxUp.preload = "auto";
-
-let audioUnlocked = false;
+// Winner song transition tracking
 let wasWinnerLastRender = false;
 
+/////////////////////////////
+// RPC minimization state
+/////////////////////////////
+let lastStateSig = "";                 // signature of state fields used to detect meaningful changes
+let lastPlaysSeen = null;              // used as primary trigger for expensive reads (vault)
+let lastVaultFetchMs = 0;              // TTL-based backup refresh
+let vaultFetchInFlight = false;
+let statePollInFlight = false;
+
+// Wallet ATA existence cache (per wallet session)
+let cachedAtaOwner58 = null;
+let cachedAtaExists = false;
+
+/////////////////////////////
+// AUDIO (Music + SFX toggles)
+/////////////////////////////
+let lastTimerEndSeen = null; // number | null
+let suppressNextWoosh = false;
+
+// UI buttons (add these to your HTML)
+const musicMuteBtn = el("musicMuteBtn");
+const sfxMuteBtn   = el("sfxMuteBtn");
+
+// Persist user choice
+const LS_MUSIC_MUTED = "buttonGame_musicMuted";
+const LS_SFX_MUTED   = "buttonGame_sfxMuted";
+
+let musicMuted = localStorage.getItem(LS_MUSIC_MUTED) === "1";
+let sfxMuted   = localStorage.getItem(LS_SFX_MUTED) === "1";
+
+// --- Music (global background) ---
+const bgMusic = new Audio("winner.wav");
+bgMusic.preload = "auto";
+bgMusic.loop = true;
+bgMusic.volume = 0.3;
+let bgMusicPlaying = false;
+
+// --- SFX ---
+const sfxDown = new Audio("clickdown.wav");
+const sfxUp   = new Audio("clickup.wav");
+const sfxWoosh = new Audio("woosh.wav");
+const sfxPlayComplete = new Audio("play.wav");
+
+sfxDown.preload = "auto";
+sfxUp.preload = "auto";
+sfxWoosh.preload = "auto";
+sfxPlayComplete.preload = "auto";
+
+sfxWoosh.volume = 0.6;
+sfxPlayComplete.volume = 0.8;
+
+let audioUnlocked = false;
+
+/**
+ * Unlock audio once on a user gesture.
+ * We "prime" SFX by playing muted briefly then pausing.
+ */
 function unlockAudioOnce() {
   if (audioUnlocked) return;
   audioUnlocked = true;
 
-  // Just force-load the audio; DO NOT play it.
-  // Calling .load() is safe and won't loop anything.
+  // Load everything
+  try { bgMusic.load(); } catch {}
   try { sfxDown.load(); } catch {}
   try { sfxUp.load(); } catch {}
-  try { winnerSong.load(); } catch {}
   try { sfxWoosh.load(); } catch {}
   try { sfxPlayComplete.load(); } catch {}
+
+  // Prime ONLY SFX (not bgMusic) to satisfy autoplay policies.
+  const primeSfx = (aud) => {
+    if (!aud) return;
+    try {
+      const prevMuted = aud.muted;
+      const prevVol = aud.volume;
+
+      aud.muted = true;
+      aud.volume = 0;
+
+      const p = aud.play();
+      if (p && typeof p.then === "function") {
+        p.then(() => {
+          try { aud.pause(); } catch {}
+          try { aud.currentTime = 0; } catch {}
+          aud.muted = prevMuted;
+          aud.volume = prevVol;
+        }).catch(() => {
+          aud.muted = prevMuted;
+          aud.volume = prevVol;
+        });
+      } else {
+        aud.muted = prevMuted;
+        aud.volume = prevVol;
+      }
+    } catch {}
+  };
+
+  primeSfx(sfxDown);
+  primeSfx(sfxUp);
+  primeSfx(sfxWoosh);
+  primeSfx(sfxPlayComplete);
+
+  ensureBgMusicState();
 }
 
+function ensureBgMusicState() {
+  bgMusic.muted = musicMuted;
+
+  if (musicMuted) {
+    stopBgMusic();
+    return;
+  }
+
+  if (!bgMusicPlaying) {
+    try {
+      bgMusic.currentTime = 0;
+      bgMusic.play().then(() => {
+        bgMusicPlaying = true;
+      }).catch(() => {
+        bgMusicPlaying = false;
+      });
+    } catch {
+      bgMusicPlaying = false;
+    }
+  }
+}
+
+function stopBgMusic() {
+  try { bgMusic.pause(); } catch {}
+  bgMusicPlaying = false;
+}
+
+// Unified SFX play helper (respects sfxMuted)
 function playSfx(aud) {
-  if (!aud) return;
+  if (!aud || sfxMuted) return;
+
   try {
-    aud.currentTime = 0;
-    aud.play().catch(() => {});
+    // Clone so it doesn't fight the bgMusic element
+    const a = aud.cloneNode(true);
+    a.muted = false;
+    a.volume = aud.volume;
+    a.play().catch(() => {});
   } catch {}
 }
 
-/////////////////////////////
-// Winner song (plays while YOU are current winner)
-/////////////////////////////
-const winnerSong = new Audio("winner.wav"); // <-- change filename to your actual song file
-winnerSong.preload = "auto";
-winnerSong.loop = true;
-winnerSong.volume = 0.3; // tweak
+function setMusicMuted(muted) {
+  musicMuted = !!muted;
+  localStorage.setItem(LS_MUSIC_MUTED, musicMuted ? "1" : "0");
+  updateAudioButtons();
+  ensureBgMusicState();
+}
 
-let winnerSongPlaying = false;
+function setSfxMuted(muted) {
+  sfxMuted = !!muted;
+  localStorage.setItem(LS_SFX_MUTED, sfxMuted ? "1" : "0");
+  updateAudioButtons();
+}
 
-function startWinnerSong() {
-  if (winnerSongPlaying) return;
+function updateAudioButtons() {
+  if (musicMuteBtn) musicMuteBtn.textContent = musicMuted ? "Music: OFF" : "Music: ON";
+  if (sfxMuteBtn)   sfxMuteBtn.textContent   = sfxMuted ? "SFX: OFF"   : "SFX: ON";
+}
 
-  // MUST be called from user gesture to guarantee playback.
-  // If blocked, we don't keep retrying every render tick (handled by transition gating).
-  winnerSong.currentTime = 0;
-  winnerSong.play().then(() => {
-    winnerSongPlaying = true;
-  }).catch(() => {
-    winnerSongPlaying = false;
+if (musicMuteBtn) {
+  musicMuteBtn.addEventListener("click", () => {
+    unlockAudioOnce();
+    setMusicMuted(!musicMuted);
   });
 }
-
-function stopWinnerSong() {
-  try { winnerSong.pause(); } catch {}
-  try { winnerSong.currentTime = 0; } catch {}
-  winnerSongPlaying = false;
+if (sfxMuteBtn) {
+  sfxMuteBtn.addEventListener("click", () => {
+    unlockAudioOnce();
+    setSfxMuted(!sfxMuted);
+  });
 }
-
-async function initAudioCtxOnce() {
-  if (audioCtx) return;
-
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-
-  // Load woosh into a decoded buffer
-  const resp = await fetch("woosh.wav");
-  const arr = await resp.arrayBuffer();
-  wooshBuf = await audioCtx.decodeAudioData(arr);
-}
-
-/////////////////////////////
-// WOOSH (timer reset SFX) - HTMLAudio version (reliable)
-/////////////////////////////
-const sfxWoosh = new Audio("woosh.wav");
-sfxWoosh.preload = "auto";
-sfxWoosh.volume = 0.6;
-
-let lastTimerEndSeen = null; // number | null
-
-function playWoosh() {
-  // Must already be unlocked by a user gesture (your pointerdown does that)
-  try {
-    sfxWoosh.pause();          // stop any current woosh
-    sfxWoosh.currentTime = 0;  // rewind
-    sfxWoosh.play().catch(() => {});
-  } catch {}
-}
-
+updateAudioButtons();
 
 /////////////////////////////
 // Helpers
@@ -245,13 +330,6 @@ function fmtClock(seconds) {
   return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 }
 
-function fmtTokenRounded(baseUnitsBigInt) {
-  // 1 decimal max, because pot will be huge
-  const denom = 10 ** mintDecimals;
-  const v = Number(baseUnitsBigInt) / denom;
-  return v.toFixed(0);
-}
-
 function fmtTokenExact(baseUnitsBigInt) {
   const d = BigInt(10) ** BigInt(mintDecimals);
   const whole = baseUnitsBigInt / d;
@@ -265,16 +343,21 @@ function shortPk(pk58) {
   return `${pk58.slice(0, 4)}…${pk58.slice(-4)}`;
 }
 
-function fmtLocalTime(tsMs) {
-  return new Date(tsMs).toLocaleString();
-}
-
 async function getMintDecimals() {
   const info = await connection.getParsedAccountInfo(mintPk, "confirmed");
   const parsed = info?.value?.data?.parsed;
   const decimals = parsed?.info?.decimals;
   if (typeof decimals === "number") return decimals;
   return mintDecimals;
+}
+
+let mintDecimalsLoaded = false;
+async function ensureMintDecimals() {
+  if (mintDecimalsLoaded) return;
+  try {
+    mintDecimals = await getMintDecimals();
+    mintDecimalsLoaded = true;
+  } catch {}
 }
 
 // Matches on-chain pot divisor logic (based on session_plays)
@@ -286,51 +369,55 @@ function potDivisorFromPlays(sessionPlays) {
   return 5n;
 }
 
+const tokenIntFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+
+function fmtTokenRoundedWithCommas(baseUnitsBigInt) {
+  const denom = 10 ** mintDecimals;
+  const v = Number(baseUnitsBigInt) / denom;
+  return tokenIntFormatter.format(v);
+}
+
 function fmtTierReward(divisorBigInt) {
-    let playAmount = BigInt(0);
-    if (divisorBigInt == 5n) playAmount = 25000n * 1000000000n;
-    else if (divisorBigInt == 10n) playAmount = 2500n * 1000000000n;
-    else if (divisorBigInt == 20n) playAmount = 250n * 1000000000n;
-    else playAmount = 0n;
+  let playAmount = BigInt(0);
+  // NOTE: your existing constants use 1e9 base units; keep as-is to match your game token math.
+  if (divisorBigInt == 5n) playAmount = 25000n * 1000000000n;
+  else if (divisorBigInt == 10n) playAmount = 2500n * 1000000000n;
+  else if (divisorBigInt == 20n) playAmount = 250n * 1000000000n;
 
-
-
-  const pot = divisorBigInt > 0n ? ((latestVaultAmount + playAmount) / divisorBigInt): 0n;
-
+  const pot = divisorBigInt > 0n ? ((latestVaultAmount + playAmount) / divisorBigInt) : 0n;
   return `${fmtTokenRoundedWithCommas(pot)}`;
 }
 
-function updateThresholdPanel() {
+let lastThresholdKey = "";
+function updateThresholdPanelIfNeeded() {
   if (!tpProjectedPot || !latestState) return;
+
+  const key = `${latestState.sessionPlays}|${latestVaultAmount.toString()}`;
+  if (key === lastThresholdKey) return;
+  lastThresholdKey = key;
 
   const plays = Number(latestState.sessionPlays || 0);
   const divisor = potDivisorFromPlays(plays);
-  const currentTier = Number(100n)/Number(divisor);
+  const currentTier = Number(100n) / Number(divisor);
 
-
-  
   tpVaultBalance.textContent = fmtTokenRoundedWithCommas(latestVaultAmount);
   tpProjectedPot.textContent = currentTier + "% of Vault";
   tpPlays.textContent = String(plays);
   tpDivisor.textContent = String(divisor);
 
-  // Tier rewards
   if (tier0Reward) tier0Reward.textContent = fmtTierReward(20n);
   if (tier1Reward) tier1Reward.textContent = fmtTierReward(10n);
   if (tier2Reward) tier2Reward.textContent = fmtTierReward(5n);
 
-  // Active tier highlight
   if (tier0) tier0.classList.toggle("tpTierActive", plays > 249 && plays < 2500);
-  if (tier1) tier1.classList.toggle("tpTierActive", plays >2499 && plays < 25000);
+  if (tier1) tier1.classList.toggle("tpTierActive", plays > 2499 && plays < 25000);
   if (tier2) tier2.classList.toggle("tpTierActive", plays >= 25000);
 
-  // Progress to next unlock
   let left = 0, right = 250;
   if (plays < 250) { left = 0; right = 250; }
   else if (plays < 1000) { left = 250; right = 1000; }
   else if (plays < 5000) { left = 1000; right = 5000; }
   else { left = 5000; right = 5000; }
-
 
   if (right === left) {
     if (tpBarFill) tpBarFill.style.width = "100%";
@@ -346,23 +433,6 @@ function updateThresholdPanel() {
     if (tpBarRight) tpBarRight.textContent = `Next unlock: ${right}`;
     if (tpFoot) tpFoot.textContent = "Rewards are projected from current vault balance.";
   }
-}
-
-const tokenIntFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
-const tokenFracFormatter = new Intl.NumberFormat("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 6 });
-
-function fmtTokenRoundedWithCommas(baseUnitsBigInt) {
-  // whole tokens (0 decimals shown), with commas
-  const denom = 10 ** mintDecimals;
-  const v = Number(baseUnitsBigInt) / denom;
-  return tokenIntFormatter.format(v);
-}
-
-function fmtTokenExactWithCommas(baseUnitsBigInt) {
-  // up to 6 decimals shown, with commas
-  const denom = 10 ** mintDecimals;
-  const v = Number(baseUnitsBigInt) / denom;
-  return tokenFracFormatter.format(v);
 }
 
 /////////////////////////////
@@ -402,7 +472,6 @@ function decodeState(accountData) {
 
   const unclaimed = data[o] === 1; o += 1;
 
-  // NEW (on-chain): session_plays u32
   const sessionPlays = readU32(data, o); o += 4;
 
   const enabled = data[o] === 1; o += 1;
@@ -418,7 +487,7 @@ function decodeState(accountData) {
 }
 
 /////////////////////////////
-// Anchor discriminators + ix builders (no Anchor client)
+// Anchor discriminators + ix builders (cached)
 /////////////////////////////
 async function sha256Bytes(message) {
   const data = new TextEncoder().encode(message);
@@ -431,6 +500,18 @@ async function anchorDiscriminator(ixName) {
   return hash.slice(0, 8);
 }
 
+let PLAY_DISC = null;
+let CLAIM_DISC = null;
+
+async function getPlayDisc() {
+  if (!PLAY_DISC) PLAY_DISC = await anchorDiscriminator("play");
+  return PLAY_DISC;
+}
+async function getClaimDisc() {
+  if (!CLAIM_DISC) CLAIM_DISC = await anchorDiscriminator("claim");
+  return CLAIM_DISC;
+}
+
 function findAta(ownerPk, mintPk2) {
   const [ata] = PublicKey.findProgramAddressSync(
     [ownerPk.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mintPk2.toBuffer()],
@@ -440,8 +521,7 @@ function findAta(ownerPk, mintPk2) {
 }
 
 async function buildPlayIx({ playerPk, playerAtaPk, previousWinnerAtaPk }) {
-  const disc = await anchorDiscriminator("play");
-  const data = disc;
+  const data = await getPlayDisc();
 
   const keys = [
     { pubkey: statePk, isSigner: false, isWritable: true },
@@ -457,8 +537,7 @@ async function buildPlayIx({ playerPk, playerAtaPk, previousWinnerAtaPk }) {
 }
 
 async function buildClaimIx({ winnerPk, winnerAtaPk }) {
-  const disc = await anchorDiscriminator("claim");
-  const data = disc;
+  const data = await getClaimDisc();
 
   const keys = [
     { pubkey: statePk, isSigner: false, isWritable: true },
@@ -502,33 +581,26 @@ function trackWinnerChanges(gs) {
   if (!gs) return;
   const winner58 = gs.currentWinner.toBase58();
   const default58 = PublicKey.default.toBase58();
-
-  // Don’t log default (no winner)
   if (winner58 === default58) return;
 
-  // Initialize lastWinnerSeen on first non-default observation:
   if (lastWinnerSeen === null) {
     lastWinnerSeen = winner58;
     pushWinnerEntry(winner58, Date.now(), true);
     return;
   }
-
-  // If unchanged, do nothing
   if (winner58 === lastWinnerSeen) return;
 
-  // Winner changed
   lastWinnerSeen = winner58;
   pushWinnerEntry(winner58, Date.now(), false);
 }
 
 function pushWinnerEntry(winner58, tsMs, isInitial) {
-  // Dedupe: if the newest entry is same winner, skip
   if (winnerHistory.length > 0 && winnerHistory[0].winner === winner58) return;
 
   winnerHistory.unshift({ winner: winner58, tsMs, isInitial });
   if (winnerHistory.length > MAX_WINNER_LOG) winnerHistory.length = MAX_WINNER_LOG;
 
-  renderWinnerLog();
+  renderWinnerLog(); // only re-render when log data changes
 }
 
 function fmtSince(tsMs) {
@@ -542,7 +614,6 @@ function renderWinnerLog() {
   if (!winnerLogEl) return;
 
   winnerLogEl.innerHTML = "";
-
   const connected58 = walletPubkey ? walletPubkey.toBase58() : null;
 
   winnerHistory.forEach((row, idx) => {
@@ -552,7 +623,6 @@ function renderWinnerLog() {
     const isTop = idx === 0;
     const isYou = connected58 && row.winner === connected58;
 
-    // Highlight rules
     if (isYou && isTop) {
       div.style.border = "1px solid rgba(255, 215, 0, .55)";
       div.style.background = "rgba(255, 215, 0, .10)";
@@ -561,11 +631,8 @@ function renderWinnerLog() {
       div.style.background = "rgba(0, 255, 140, .08)";
     }
 
-    // Display name
     const displayName = isYou ? "You" : shortPk(row.winner);
     const since = fmtSince(row.tsMs);
-
-    // clickable account link
     const url = solscanAccountUrl(row.winner);
 
     div.innerHTML =
@@ -580,7 +647,7 @@ function renderWinnerLog() {
 }
 
 /////////////////////////////
-// Wallet
+// Wallet (improved wallet switching)
 /////////////////////////////
 function getWalletProvider() {
   const any = window.solana;
@@ -589,30 +656,101 @@ function getWalletProvider() {
   return null;
 }
 
+let walletListenersInstalled = false;
+
+function installWalletListeners(provider) {
+  if (!provider || walletListenersInstalled) return;
+  walletListenersInstalled = true;
+
+  provider.on?.("accountChanged", (pubkey) => {
+    if (!pubkey) {
+      walletPubkey = null;
+      disconnectBtn.style.display = "none";
+      connectBtn.style.display = "inline-block";
+
+      // clear ATA cache
+      cachedAtaOwner58 = null;
+      cachedAtaExists = false;
+
+      wasWinnerLastRender = false;
+      addLog("Wallet account changed: disconnected");
+      render();
+      return;
+    }
+
+    walletPubkey = pubkey;
+    disconnectBtn.style.display = "inline-block";
+    connectBtn.style.display = "none";
+
+    // reset caches for new wallet
+    cachedAtaOwner58 = null;
+    cachedAtaExists = false;
+
+    wasWinnerLastRender = false;
+    addLog(`Wallet account changed: ${walletPubkey.toBase58()}`);
+
+    renderWinnerLog(); // "You" highlight may change
+    render();
+  });
+
+  provider.on?.("disconnect", () => {
+    walletPubkey = null;
+    disconnectBtn.style.display = "none";
+    connectBtn.style.display = "inline-block";
+
+    cachedAtaOwner58 = null;
+    cachedAtaExists = false;
+
+    wasWinnerLastRender = false;
+    addLog("Wallet disconnected (event)");
+    renderWinnerLog();
+    render();
+  });
+}
+
 async function connectWallet() {
   const provider = getWalletProvider();
   if (!provider) {
     alert("No Solana wallet found. Install Phantom.");
     return;
   }
+
+  unlockAudioOnce();
+
   const resp = await provider.connect({ onlyIfTrusted: false });
   walletPubkey = resp.publicKey;
+
+  installWalletListeners(provider);
+
   addLog(`Wallet connected: ${walletPubkey.toBase58()}`);
 
   disconnectBtn.style.display = "inline-block";
   connectBtn.style.display = "none";
-  render(); // update CTA immediately
+
+  // reset caches
+  cachedAtaOwner58 = null;
+  cachedAtaExists = false;
+
+  renderWinnerLog();
+  render();
 }
 
 async function disconnectWallet() {
   const provider = getWalletProvider();
   try { await provider?.disconnect?.(); } catch {}
+
   walletPubkey = null;
 
   disconnectBtn.style.display = "none";
   connectBtn.style.display = "inline-block";
-  stopWinnerSong();
+
+  cachedAtaOwner58 = null;
+  cachedAtaExists = false;
+
+  wasWinnerLastRender = false;
+
   addLog("Wallet disconnected");
+  renderWinnerLog();
   render();
 }
 
@@ -627,185 +765,224 @@ function renderWalletPill() {
 }
 
 /////////////////////////////
-// Read-only refresh
+// RPC gating: vault fetch
 /////////////////////////////
-async function refreshReadOnly() {
+async function maybeRefreshVaultAmount(reason = "") {
+  const nowMs = Date.now();
+  const ttlExpired = (nowMs - lastVaultFetchMs) >= VAULT_TTL_MS;
+
+  // Primary trigger: plays changed
+  const plays = latestState ? Number(latestState.sessionPlays || 0) : null;
+  const playsChanged = (plays !== null && lastPlaysSeen !== null && plays !== lastPlaysSeen);
+
+  // If we haven't ever fetched vault, do it once.
+  const neverFetched = lastVaultFetchMs === 0;
+
+  const should = neverFetched || playsChanged || ttlExpired;
+
+  if (!should) return;
+  if (vaultFetchInFlight) return;
+
+  vaultFetchInFlight = true;
   try {
-    mintDecimals = await getMintDecimals().catch(() => mintDecimals);
+    const vaultBal = await connection.getTokenAccountBalance(vaultPk, "confirmed");
+    latestVaultAmount = BigInt(vaultBal?.value?.amount || "0");
+    lastVaultFetchMs = Date.now();
 
-    const [stateAcc, vaultBal] = await Promise.all([
-      connection.getAccountInfo(statePk, "confirmed"),
-      connection.getTokenAccountBalance(vaultPk, "confirmed"),
-    ]);
+    // update dependent UI blocks now
+    if (vaultText) vaultText.textContent = `${fmtTokenExact(latestVaultAmount)} tokens`;
+    updateThresholdPanelIfNeeded();
+    renderPotIfNeeded();
+  } catch (e) {
+    console.warn("Vault refresh failed", reason, e);
+  } finally {
+    vaultFetchInFlight = false;
+  }
+}
 
-    latestVaultAmount = BigInt(vaultBal?.value?.amount || "0")*10000000n;
-    //latestVaultAmount = 100000000000000n;
+/////////////////////////////
+// State polling (critical)
+/////////////////////////////
+function stateSignature(gs) {
+  if (!gs) return "";
+  // include only critical fields that indicate meaningful gameplay changes
+  return [
+    gs.enabled ? 1 : 0,
+    gs.timerEnd,
+    gs.cooldownEnd,
+    gs.unclaimed ? 1 : 0,
+    gs.sessionPlays,
+    gs.currentWinner.toBase58(),
+    // include playCost if you ever change it on-chain; safe to include
+    gs.playCost.toString(),
+  ].join("|");
+}
+
+function handleWooshOnTimerReset(gs) {
+  const newTimerEnd = Number(gs?.timerEnd || 0);
+
+  if (lastTimerEndSeen === null) {
+    lastTimerEndSeen = newTimerEnd;
+    return;
+  }
+
+  const timerReset = newTimerEnd > lastTimerEndSeen;
+  if (timerReset) {
+    if (suppressNextWoosh) {
+      suppressNextWoosh = false;
+    } else {
+      playSfx(sfxWoosh);
+    }
+  }
+  lastTimerEndSeen = newTimerEnd;
+}
+
+async function refreshStateOnly() {
+  if (statePollInFlight) return;
+  statePollInFlight = true;
+
+  try {
+    const stateAcc = await connection.getAccountInfo(statePk, "confirmed");
     if (!stateAcc?.data) {
       latestState = null;
-      phaseText.textContent = "State not found";
+      if (phaseText) phaseText.textContent = "State not found";
       mainBtn.classList.add("disabled");
       mainBtn.disabled = true;
       mainBtn.textContent = "ERROR";
       return;
     }
 
-    latestState = decodeState(stateAcc.data);
+    const decoded = decodeState(stateAcc.data);
+    const sig = stateSignature(decoded);
+    const changed = sig !== lastStateSig;
 
-    // --- Woosh on timer reset (timerEnd jumped forward) ---
-    const newTimerEnd = Number(latestState.timerEnd || 0);
+    latestState = decoded;
 
-    // Initialize on first read (no sound)
-    if (lastTimerEndSeen === null) {
-    lastTimerEndSeen = newTimerEnd;
+    // "plays" trigger base (used for vault gating)
+    const plays = Number(decoded.sessionPlays || 0);
+    if (lastPlaysSeen === null) lastPlaysSeen = plays;
+
+    if (changed) {
+      lastStateSig = sig;
+
+      // Critical: winner/timer/claim status updates
+      handleWooshOnTimerReset(decoded);
+      trackWinnerChanges(decoded);
+
+      // Winner detail
+      const w = decoded.currentWinner.toBase58();
+      winnerLink.textContent = (w === PublicKey.default.toBase58()) ? "—" : w;
+      winnerLink.href = (w === PublicKey.default.toBase58()) ? "#" : solscanAccountUrl(w);
+
+      // Correct: show YES when unclaimed == true
+      unclaimedText.textContent = decoded.unclaimed ? "YES" : "NO";
+
+      // play cost can change rarely; update when state changes
+      playCostText.textContent = `${fmtTokenExact(decoded.playCost)} tokens`;
+
+      // Trigger expensive read ONLY when plays changed (or TTL)
+      const prevPlays = lastPlaysSeen;
+      if (plays !== prevPlays) {
+        lastPlaysSeen = plays;
+        // plays changed => likely vault changed (play or claim)
+        maybeRefreshVaultAmount("plays changed");
+      } else {
+        // still allow TTL refresh
+        maybeRefreshVaultAmount("ttl");
+      }
+
+      // render now for immediate UI reaction
+      render();
     } else {
-    const timerReset = newTimerEnd > lastTimerEndSeen;
-
-    if (timerReset) {
-        // If YOU just played, you’ll hear play.wav instead of woosh once
-        if (suppressNextWoosh) {
-        suppressNextWoosh = false;
-        } else {
-        playWoosh();
-        }
+      // no state change; still occasionally refresh vault via TTL
+      maybeRefreshVaultAmount("ttl-only-no-state-change");
     }
-
-    lastTimerEndSeen = newTimerEnd;
-    }
-    // Track winner changes for session log
-    trackWinnerChanges(latestState);
-
-    // Populate details links
-    programLink.textContent = programIdPk.toBase58();
-    programLink.href = solscanAccountUrl(programIdPk.toBase58());
-
-    stateLink.textContent = statePk.toBase58();
-    stateLink.href = solscanAccountUrl(statePk.toBase58());
-
-    vaultLink.textContent = vaultPk.toBase58();
-    vaultLink.href = solscanAccountUrl(vaultPk.toBase58());
-
-    mintLink.textContent = mintPk.toBase58();
-    mintLink.href = solscanAccountUrl(mintPk.toBase58());
-
-    // Winner detail
-    const w = latestState.currentWinner.toBase58();
-    winnerLink.textContent = (w === PublicKey.default.toBase58()) ? "—" : w;
-    winnerLink.href = (w === PublicKey.default.toBase58()) ? "#" : solscanAccountUrl(w);
-
-    // show YES when unclaimed == true
-    unclaimedText.textContent = latestState.unclaimed ? "NO" : "YES";
-
-    playCostText.textContent = `${fmtTokenExact(latestState.playCost)} tokens`;
-    vaultText.textContent = `${fmtTokenExact(latestVaultAmount)} tokens`;
-
-    render();
   } catch (e) {
     console.error(e);
     addLog(`Read error: ${e.message || e.toString()}`);
+  } finally {
+    statePollInFlight = false;
   }
 }
 
 /////////////////////////////
-// Render main UI
+// Render (NO RPC)
 /////////////////////////////
+let lastPotKey = "";
+function renderPotIfNeeded() {
+  if (!latestState || !potDisplay) return;
+  const k = `${latestState.sessionPlays}|${latestVaultAmount.toString()}|${mintDecimals}`;
+  if (k === lastPotKey) return;
+  lastPotKey = k;
+
+  const divisor = potDivisorFromPlays(latestState.sessionPlays);
+  const pot = divisor > 0 ? (latestVaultAmount / divisor) : 0n;
+  potDisplay.textContent = fmtTokenRoundedWithCommas(pot);
+}
+
 function render() {
   renderWalletPill();
-
   if (!latestState) return;
 
   const now = nowSec();
   const phase = computePhase(latestState, now);
 
-  // POT (matches on-chain logic: vault / divisor(session_plays))
-  const divisor = potDivisorFromPlays(latestState.sessionPlays);
-  const pot = divisor > 0 ? (latestVaultAmount / divisor) : 0n;
-  potDisplay.textContent = fmtTokenRoundedWithCommas(pot);
+  renderPotIfNeeded();
+  updateThresholdPanelIfNeeded();
+  if (phaseText) phaseText.textContent = phaseLabel(phase);
 
-  // Update thresholds/progress panel
-  updateThresholdPanel();
+  // Winner song control placeholder: keep the logic variable, but don't RPC
+  const winnerPk58 = latestState.currentWinner.toBase58();
+  const isWinnerConnected = !!walletPubkey && walletPubkey.toBase58() === winnerPk58;
 
-  // Phase text
-  phaseText.textContent = phaseLabel(phase);
-
-    const winnerPk58 = latestState.currentWinner.toBase58();
-    const isWinnerConnected = !!walletPubkey && walletPubkey.toBase58() === winnerPk58;
-    const hasWinner = winnerPk58 !== PublicKey.default.toBase58();
-
-    const shouldPlayWinnerSong = isWinnerConnected && hasWinner;
-
-    // Only react on transitions
-    if (shouldPlayWinnerSong && !wasWinnerLastRender) {
-    startWinnerSong();
-    console.log("Started winner song");
-    } else if (!shouldPlayWinnerSong && wasWinnerLastRender) {
-    stopWinnerSong();
-    }
-
-wasWinnerLastRender = shouldPlayWinnerSong;
-  // CLOCK + BAR
+  // CLOCK + BAR (smooth UI)
   let secondsLeft = 0;
   let pct = 0;
 
   if (phase === "ACTIVE") {
     secondsLeft = latestState.timerEnd - now;
-    clockLabel.textContent = "TIME";
+    if (clockLabel) clockLabel.textContent = "TIME";
     const duration = Math.max(1, latestState.roundDurationSecs || 1);
     const elapsed = duration - secondsLeft;
     pct = Math.max(0, Math.min(1, elapsed / duration));
   } else if (phase === "COOLDOWN") {
     secondsLeft = latestState.cooldownEnd - now;
-    clockLabel.textContent = "COOLDOWN";
+    if (clockLabel) clockLabel.textContent = "COOLDOWN";
     const total = Math.max(1, (latestState.cooldownEnd - latestState.timerEnd) || 1);
     const elapsed = total - secondsLeft;
     pct = Math.max(0, Math.min(1, elapsed / total));
   } else if (phase === "POST_COOLDOWN_UNCLAIMED") {
-    clockLabel.textContent = "READY";
-    secondsLeft = 0;
+    if (clockLabel) clockLabel.textContent = "READY";
+    secondsLeft = 60;
     pct = 1;
   } else {
-    clockLabel.textContent = "TIME";
-    secondsLeft = 0;
+    if (clockLabel) clockLabel.textContent = "TIME";
+    secondsLeft = 60;
     pct = 0;
   }
 
-  clockDisplay.textContent = fmtClock(secondsLeft);
-  barFill.style.width = `${pct * 100}%`;
+  if (clockDisplay) clockDisplay.textContent = fmtClock(secondsLeft);
+  if (barFill) barFill.style.width = `${pct * 100}%`;
 
-  // MAIN BUTTON LOGIC (fixed for claim beyond cooldown):
-  // - Winner sees CLAIM once timer has ended and pot is still unclaimed.
-  // - CLAIM stays available/green regardless of cooldown end.
-  // - PLAY is still available when appropriate (IDLE/ACTIVE/POST_COOLDOWN_UNCLAIMED).
+  // MAIN BUTTON LOGIC
   const connected = !!walletPubkey;
-
-  // Winner can claim as long as:
-  // - connected
-  // - is current winner
-  // - unclaimed
-  // - game enabled
-  // - timer has ended (now > timerEnd)
   const timerEnded = latestState.timerEnd > 0 && now > latestState.timerEnd;
   const shouldShowClaim = connected && isWinnerConnected && latestState.unclaimed && latestState.enabled && timerEnded;
 
-  // Claim is always armed when shouldShowClaim is true (no cooldown restriction)
   claimArmed = shouldShowClaim;
-
   mainMode = shouldShowClaim ? "CLAIM" : "PLAY";
 
   if (mainMode === "CLAIM") {
     mainBtn.textContent = "CLAIM";
-    mainBtn.classList.remove("disabled");
-    mainBtn.classList.remove("claimLocked");
-    mainBtn.classList.add("claimArmed"); // keep it green in your CSS
+    mainBtn.classList.remove("disabled", "claimLocked");
+    mainBtn.classList.add("claimArmed");
     mainBtn.disabled = false;
-    mainHint.textContent = "Your win is unclaimed. Claim anytime.";
-    renderWinnerLog();
+    // if (mainHint) mainHint.textContent = "Your win is unclaimed. Claim anytime.";
     return;
   }
 
-  // Otherwise: PLAY mode
   mainBtn.classList.remove("claimLocked", "claimArmed");
 
-  // Can play only in ACTIVE/IDLE/POST_COOLDOWN_UNCLAIMED
   const canPlay = connected && latestState.enabled &&
     (phase === "ACTIVE" || phase === "IDLE" || phase === "POST_COOLDOWN_UNCLAIMED");
 
@@ -815,32 +992,30 @@ wasWinnerLastRender = shouldPlayWinnerSong;
     mainBtn.classList.remove("disabled");
 
     if (phase === "POST_COOLDOWN_UNCLAIMED") {
-      mainHint.textContent = "First press after cooldown auto-pays previous winner, then starts the next round.";
+      // if (mainHint) mainHint.textContent = "First press after cooldown auto-pays previous winner, then starts the next round.";
     } else {
-      mainHint.textContent = "Each Button press is 1000 $BUTTON.";
+      // if (mainHint) mainHint.textContent = "Each Button press is 1000 $BUTTON.";
     }
   } else {
     if (!connected) {
       mainBtn.textContent = "CONNECT";
-      mainBtn.disabled = false; // allow press to connect
+      mainBtn.disabled = false;
       mainBtn.classList.remove("disabled");
-      mainHint.textContent = "Connect to press. Viewing is available without connecting.";
+      // if (mainHint) mainHint.textContent = "Connect to press. Viewing is available without connecting.";
     } else {
       mainBtn.textContent = phase === "COOLDOWN" ? "COOLDOWN" : "WAIT";
       mainBtn.disabled = true;
       mainBtn.classList.add("disabled");
 
       if (phase === "COOLDOWN") {
-        mainHint.textContent = "Cooldown active. Winner may claim (if unclaimed).";
+        // if (mainHint) mainHint.textContent = "Cooldown active. Winner may claim (if unclaimed).";
       } else if (!latestState.enabled) {
-        mainHint.textContent = "Game is not enabled.";
+        // if (mainHint) mainHint.textContent = "Game is not enabled.";
       } else {
-        mainHint.textContent = "Waiting for the next round to start.";
+        // if (mainHint) mainHint.textContent = "Waiting for the next round to start.";
       }
     }
   }
-
-  renderWinnerLog();
 }
 
 /////////////////////////////
@@ -850,13 +1025,11 @@ async function sendTx(ix) {
   const provider = getWalletProvider();
   if (!provider?.publicKey) throw new Error("Wallet not connected");
 
-  // Faster wallet popup: don't wait for finalized just to sign
   const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
 
   const tx = new Transaction({ recentBlockhash: blockhash, feePayer: provider.publicKey });
   tx.add(ix);
 
-  // Wallet popup happens here
   const signed = await provider.signTransaction(tx);
 
   const sig = await connection.sendRawTransaction(signed.serialize(), {
@@ -865,7 +1038,6 @@ async function sendTx(ix) {
   });
   addLog("Sent tx", solscanTxUrl(sig));
 
-  // Confirm with the blockhash context (more reliable)
   await connection.confirmTransaction(
     { signature: sig, blockhash, lastValidBlockHeight },
     "confirmed"
@@ -875,9 +1047,33 @@ async function sendTx(ix) {
   return sig;
 }
 
+// Quick post-tx sync: poll state a few times fast so UI snaps immediately
+async function fastStateSyncBurst() {
+  for (let i = 0; i < FAST_SYNC_TRIES; i++) {
+    await refreshStateOnly();
+    // if state changed, refreshStateOnly already updated UI
+    await new Promise((r) => setTimeout(r, FAST_SYNC_MS));
+  }
+}
+
 /////////////////////////////
 // Main button action
 /////////////////////////////
+async function ensureAtaExistsForWallet() {
+  if (!walletPubkey) return false;
+  const owner58 = walletPubkey.toBase58();
+
+  if (cachedAtaOwner58 === owner58 && cachedAtaExists) return true;
+
+  const playerAta = findAta(walletPubkey, mintPk);
+  const ataInfo = await connection.getAccountInfo(playerAta, "confirmed");
+
+  cachedAtaOwner58 = owner58;
+  cachedAtaExists = !!ataInfo;
+
+  return cachedAtaExists;
+}
+
 async function onMain() {
   if (!latestState) return;
 
@@ -887,12 +1083,10 @@ async function onMain() {
   }
 
   const now = nowSec();
-  const phase = computePhase(latestState, now);
-
   const winnerPk58 = latestState.currentWinner.toBase58();
   const isWinnerConnected = walletPubkey && walletPubkey.toBase58() === winnerPk58;
 
-  // CLAIM path (fixed): allow claim whenever timer ended + unclaimed + winner
+  // CLAIM path
   const timerEnded = latestState.timerEnd > 0 && now > latestState.timerEnd;
   if (isWinnerConnected && latestState.unclaimed && latestState.enabled && timerEnded) {
     const winnerAta = latestState.currentWinnerAta;
@@ -903,27 +1097,29 @@ async function onMain() {
       addLog("Claim: signing…");
       await sendTx(ix);
       addLog("Claim complete");
+
+      // state + vault likely changed; plays trigger will fetch vault
+      await fastStateSyncBurst();
     } catch (e) {
       console.error(e);
       addLog(`Claim failed: ${e.message || e.toString()}`);
       alert(`Claim failed: ${e.message || e.toString()}`);
+      await refreshStateOnly();
     } finally {
-      await refreshReadOnly();
+      mainBtn.disabled = false;
     }
     return;
   }
 
-  // Play path
-  const playerAta = findAta(walletPubkey, mintPk);
-
-  const ataInfo = await connection.getAccountInfo(playerAta, "confirmed");
-  if (!ataInfo) {
+  // PLAY path
+  const ataOk = await ensureAtaExistsForWallet();
+  if (!ataOk) {
     alert("Your ATA for this mint does not exist. Receive tokens first (or create the ATA).");
     return;
   }
 
-  // previousWinnerAta must always be a valid token account for this mint.
-  // If currentWinnerAta is default/uninitialized, pass your own ATA.
+  const playerAta = findAta(walletPubkey, mintPk);
+
   const DEFAULT_PUBKEY = "11111111111111111111111111111111";
   let prevWinnerAta = latestState.currentWinnerAta;
   if (prevWinnerAta.toBase58() === DEFAULT_PUBKEY) prevWinnerAta = playerAta;
@@ -937,22 +1133,25 @@ async function onMain() {
   try {
     mainBtn.disabled = true;
     addLog("Play: signing…");
-    await sendTx(ix);                 // confirmed inside sendTx()
 
-    // You completed a play tx successfully:
-    playSfx(sfxPlayComplete);
-
-    // Suppress the next woosh since YOU likely caused the timer reset
+    // You pressed the button; we expect timerEnd to jump => suppress woosh once.
     suppressNextWoosh = true;
 
+    await sendTx(ix);
+
+    // playSfx(sfxPlayComplete);
     addLog("Play complete");
-    } catch (e) {
+
+    // State must update quickly; plays will trigger vault refresh
+    await fastStateSyncBurst();
+  } catch (e) {
     console.error(e);
     addLog(`Play failed: ${e.message || e.toString()}`);
     alert(`Play failed: ${e.message || e.toString()}`);
-    } finally {
-    await refreshReadOnly();
-    }
+    await refreshStateOnly();
+  } finally {
+    mainBtn.disabled = false;
+  }
 }
 
 /////////////////////////////
@@ -976,17 +1175,15 @@ mainBtn.addEventListener("pointerdown", (e) => {
   unlockAudioOnce();
 
   isPressing = true;
-
   try { mainBtn.setPointerCapture(e.pointerId); } catch {}
 
   playSfx(sfxDown);
 });
 
 function handleReleaseOnce(e) {
-  if (!isPressing) return;       // <- dedupe
+  if (!isPressing) return;
   isPressing = false;
 
-  // Optional: release capture
   if (e && typeof e.pointerId === "number") {
     try { mainBtn.releasePointerCapture(e.pointerId); } catch {}
   }
@@ -999,13 +1196,12 @@ mainBtn.addEventListener("pointerup", handleReleaseOnce);
 mainBtn.addEventListener("pointercancel", handleReleaseOnce);
 mainBtn.addEventListener("lostpointercapture", handleReleaseOnce);
 
-// Keep your existing action
 mainBtn.addEventListener("click", onMain);
 
 (async function boot() {
   connection = new Connection(rpcUrl(), "confirmed");
 
-  // initial details links
+  // One-time details links (no repetitive DOM updates)
   programLink.textContent = programIdPk.toBase58();
   programLink.href = solscanAccountUrl(programIdPk.toBase58());
   stateLink.textContent = statePk.toBase58();
@@ -1015,8 +1211,11 @@ mainBtn.addEventListener("click", onMain);
   mintLink.textContent = mintPk.toBase58();
   mintLink.href = solscanAccountUrl(mintPk.toBase58());
 
-  // Try trusted connect
+  // Wallet listeners (for swapping accounts)
   const provider = getWalletProvider();
+  if (provider) installWalletListeners(provider);
+
+  // Try trusted connect
   if (provider?.isPhantom) {
     try {
       const resp = await provider.connect({ onlyIfTrusted: true });
@@ -1025,15 +1224,31 @@ mainBtn.addEventListener("click", onMain);
         disconnectBtn.style.display = "inline-block";
         connectBtn.style.display = "none";
         addLog(`Wallet auto-connected: ${walletPubkey.toBase58()}`);
+
+        cachedAtaOwner58 = null;
+        cachedAtaExists = false;
+
+        wasWinnerLastRender = false;
       }
     } catch {}
   }
 
-  await refreshReadOnly();
-  setInterval(refreshReadOnly, 2000);
-  setInterval(render, 100);
+  await ensureMintDecimals();
 
-  // enable button once loaded
+  // Initial state read (critical)
+  await refreshStateOnly();
+
+  // Initial vault fetch once so pot UI isn't empty (then plays trigger)
+  await maybeRefreshVaultAmount("boot");
+
+  // Apply saved mute state and try to start music if allowed
+  ensureBgMusicState();
+
+  // Poll critical state only
+  setInterval(refreshStateOnly, STATE_POLL_MS);
+
+  // Smooth UI tick (no RPC)
+  setInterval(render, UI_TICK_MS);
+
   mainBtn.disabled = false;
-
 })();

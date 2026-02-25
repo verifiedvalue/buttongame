@@ -33,9 +33,12 @@
 
       <!-- BUTTON -->
       <button id="mainBtn" class="playBtn disabled" disabled>LOADING</button>
-      <div id="mainHint" class="hint">Reading on-chain data…</div>
-
-      <!-- TIMER BAR + CLOCK -->
+      <!-- <div id="mainHint" class="hint">Reading on-chain data…</div> -->
+<div class="hint">
+        Last player to press the button wins the pot.<br>
+        Each button press resets the timer to 60 seconds.<br>
+        1000 $BUTTON to press the button.
+        </div>      <!-- TIMER BAR + CLOCK -->
       <div class="timerWrap">
         <div class="bar" aria-label="Timer bar">
           <div id="barFill" class="fill"></div>
@@ -45,10 +48,7 @@
           <div class="clock" id="clockDisplay">00:00</div>
         </div>
       </div>
-
-      <!-- small secondary line -->
-      <div class="micro" id="microLine">Last player to press the button wins the pot.</div>
-
+      <div id="winnerNow" class="log"></div>
       <!-- NEW: Right-side thresholds / progress panel -->
       <section id="thresholdPanel" class="thresholdPanel" aria-label="Pot unlock thresholds">
         <div class="tpHeader">
@@ -83,31 +83,37 @@
           <div class="tpTier" id="tier0">
             <div class="tpTierLeft">
               <div class="tpTierName">250 Plays</div>
-              <div class="tpTierDesc">5% of Vault</div>
+              
             </div>
+            <div class="tpTierDesc">5% of Vault</div>
             <div class="tpTierRight" id="tier0Reward">—</div>
           </div>
 
           <div class="tpTier" id="tier1">
             <div class="tpTierLeft">
               <div class="tpTierName">2500 Plays</div>
-              <div class="tpTierDesc">10% of Vault</div>
+              
             </div>
+            <div class="tpTierDesc">10% of Vault</div>
             <div class="tpTierRight" id="tier1Reward">—</div>
           </div>
 
           <div class="tpTier" id="tier2">
             <div class="tpTierLeft">
               <div class="tpTierName">25000 Plays</div>
-              <div class="tpTierDesc">20% of Vault</div>
+              
             </div>
+            <div class="tpTierDesc">20% of Vault</div>
             <div class="tpTierRight" id="tier2Reward">—</div>
           </div>
         </div>
 
         <div class="tpFoot" id="tpFoot">Rewards are projected from current vault balance.</div>
       </section>
-
+      <div id="audioControls" style="display:flex; gap:10px; align-items:center; margin:10px 0;">
+      <button id="musicMuteBtn" type="button">Music: ON</button>
+      <button id="sfxMuteBtn" type="button">SFX: ON</button>
+      </div>
       <div id="winnerLog" class="log"></div>
       <div class="detailsToggle">
         <button id="toggleDetailsBtn">Details</button>
