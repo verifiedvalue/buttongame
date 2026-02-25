@@ -1031,8 +1031,9 @@ mainBtn.addEventListener("click", onMain);
 
   await refreshReadOnly();
   setInterval(refreshReadOnly, 2000);
-  setInterval(render, 500);
+  setInterval(render, 100);
 
   // enable button once loaded
   mainBtn.disabled = false;
+
 })();
