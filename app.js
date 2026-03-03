@@ -3,10 +3,10 @@
 /////////////////////////////
 // CONFIG
 /////////////////////////////
-const PROGRAM_ID = "BzRDQGEakfGQJrucuScr77QoQdckmLmNGSdqveea9MyL";
+const PROGRAM_ID = "9LWifZZ6XX82WvJ8AE2iLvyEsr3DCR7fQsMduNhZWdBQ";
 const GAME_MINT  = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
-const STATE      = "FnCLwBY38p1LUtCs6GaC438EZ3HmanAdAhGB4nfNANAz";
-const VAULT      = "CbpG1mzYkbPKAKcVMDsjfPnqJhDdHceHXuuQ9UUeA9K";
+const STATE      = "5sfJLUePwpDJuxUY9X2cW8DKafq7bqxrQ6XD61tWUvQr";
+const VAULT      = "2436ZcMWA61as89tT99RURppUpT7CjkDoFHmwskwStSa";
 
 let CLUSTER = "devnet"; // set to "mainnet-beta" for production
 
@@ -31,8 +31,11 @@ let CLUSTER = "devnet"; // set to "mainnet-beta" for production
 const RELAY_URL = "https://buttongamerelay-production.up.railway.app/"; // ← PASTE YOUR RELAY URL HERE AFTER DEPLOYING
 
 // Testing: pretend vault (and thus pot) is this many times larger for display only.
-// Set to 1n for production.
-const VAULT_DISPLAY_MULTIPLIER = 10_000_000n;
+// Set to 1n for normal behavior (no scaling).
+const VAULT_DISPLAY_MULTIPLIER = 1n;
+
+// Pre-launch simulation: show a fake pot based on a simulated vault of 100M tokens
+const SIMULATION_VAULT_TOKENS = 100_000_000n;
 
 const STATE_POLL_MS            = 4000;
 const UI_TICK_MS               = 100;
@@ -96,6 +99,7 @@ const noWalletCard  = el("noWalletCard");
 const noAtaCard     = el("noAtaCard");
 const ataPlayCostEl = el("ataPlayCost");
 const ataMintLinkEl = el("ataMintLink");
+const preLaunchCard = el("preLaunchCard");
 
 // Share card
 const shareCard           = el("shareCard");
@@ -208,6 +212,18 @@ let walletPubkey     = null;
 let mintDecimals     = 6;
 let latestState      = null;
 let latestVaultAmount = 0n;
+let simulationMode   = false; // true when program/state are not live; show demo pot + no-op plays
+
+function getSimulatedVaultRaw() {
+  const d = BigInt(10) ** BigInt(mintDecimals);
+  return SIMULATION_VAULT_TOKENS * d;
+}
+function getSimulatedPotRaw() {
+  // Same rules as real pot: pot = vault / divisor, with 0 plays → divisor = 40
+  const div = potDivisorFromPlays(0);
+  const vaultRaw = getSimulatedVaultRaw();
+  return div > 0n ? (vaultRaw / div) : 0n;
+}
 
 function getDisplayVault() {
   return latestVaultAmount * VAULT_DISPLAY_MULTIPLIER;
@@ -299,8 +315,11 @@ const LS_SFX_MUTED   = "buttonGame_sfxMuted";
 let musicMuted = localStorage.getItem(LS_MUSIC_MUTED) === "1";
 let sfxMuted   = localStorage.getItem(LS_SFX_MUTED)   === "1";
 
-const bgMusic = new Audio("winner.wav");
+const bgMusic = new Audio("winner.wav");      // used only as cooldown song now
 bgMusic.preload = "auto"; bgMusic.loop = true; bgMusic.volume = 0.3;
+
+const playSong = new Audio("playsong.wav");   // plays while a round is ACTIVE
+playSong.preload = "auto"; playSong.loop = true; playSong.volume = 0.2;
 
 const sfxDown         = new Audio("clickdown.wav");
 const sfxUp           = new Audio("clickup.wav");
@@ -308,15 +327,32 @@ const sfxWoosh        = new Audio("woosh.wav");
 const sfxPlayComplete = new Audio("play.wav");
 const sfxLoading      = new Audio("loading.wav");
 const sfxAlarm        = new Audio("alarm.wav");
-[sfxDown, sfxUp, sfxWoosh, sfxPlayComplete, sfxLoading, sfxAlarm].forEach(a => a.preload = "auto");
-sfxWoosh.volume = 0.6; sfxPlayComplete.volume = 0.8;
+[sfxDown, sfxUp, sfxWoosh, sfxPlayComplete, sfxLoading, sfxAlarm, playSong, bgMusic].forEach(a => a.preload = "auto");
+// Keep click down/up feedback, but mute the bigger "bubble" SFX (woosh / play) for now.
+sfxDown.volume        = 0.6;
+sfxUp.volume          = 0.6;
+sfxWoosh.volume       = 0;
+sfxPlayComplete.volume = 0;
 sfxLoading.loop = true; sfxLoading.volume = 0.5;
 sfxAlarm.loop   = true; sfxAlarm.volume   = 0.6;
 
-let alarmPlaying = false;
+let alarmPlaying      = false;
+let lastSongWinner    = null;  // winner pubkey string we last started playSong for
+let lastSongPlays     = null;  // sessionPlays value when we started playSong
 
 function startBgMusicIfAllowed() { if (!musicMuted) try { bgMusic.play().catch(() => {}); } catch {} }
 function stopBgMusic()           { try { bgMusic.pause(); } catch {} }
+function startPlaySong() {
+  if (musicMuted || !playSong) return;
+  try {
+    playSong.currentTime = 0;
+    playSong.play().catch(() => {});
+  } catch {}
+}
+function stopPlaySong() {
+  if (!playSong) return;
+  try { playSong.pause(); playSong.currentTime = 0; } catch {}
+}
 function startLoadingSound() {
   if (sfxMuted || !sfxLoading) return;
   try { sfxLoading.currentTime = 0; sfxLoading.play().catch(() => {}); } catch {}
@@ -345,7 +381,13 @@ function setMusicMuted(v) {
   musicMuted = !!v;
   localStorage.setItem(LS_MUSIC_MUTED, musicMuted ? "1" : "0");
   updateAudioButtons();
-  musicMuted ? stopBgMusic() : startBgMusicIfAllowed();
+  if (musicMuted) {
+    stopBgMusic();
+    stopPlaySong();
+  } else if (latestState) {
+    const phase = computePhase(latestState, nowSec());
+    updatePhaseMusic(phase);
+  }
 }
 function setSfxMuted(v) {
   sfxMuted = !!v;
@@ -371,6 +413,28 @@ function updateAudioButtons() {
 if (musicMuteBtn) musicMuteBtn.addEventListener("click", () => setMusicMuted(!musicMuted));
 if (sfxMuteBtn)   sfxMuteBtn.addEventListener("click",   () => setSfxMuted(!sfxMuted));
 updateAudioButtons();
+
+// Phase-aware music routing: cooldown song vs. play song
+function updatePhaseMusic(phase) {
+  if (musicMuted) {
+    stopBgMusic();
+    stopPlaySong();
+    return;
+  }
+  if (phase === "COOLDOWN") {
+    // Cooldown song only
+    startBgMusicIfAllowed();
+    stopPlaySong();
+  } else if (phase === "ACTIVE") {
+    // Active round: playSong is driven by winner / plays changes;
+    // cooldown music should be off.
+    stopBgMusic();
+  } else {
+    // Other phases: no background music
+    stopBgMusic();
+    stopPlaySong();
+  }
+}
 
 /////////////////////////////
 // HELPERS
@@ -413,11 +477,21 @@ function escapeHtml(s) {
 // Server-time offset (sec): applied so timer/cooldown match across devices (no buffering; skew was the cause of differences)
 let timeOffsetSec = 0;
 async function syncTimeOnce() {
-  try {
-    const r = await fetch("https://worldtimeapi.org/api/ip", { cache: "no-store" });
-    const d = await r.json();
-    if (typeof d.unixtime === "number") timeOffsetSec = d.unixtime - Math.floor(Date.now() / 1000);
-  } catch (_) {}
+  // Try a few times to get a stable, shared time source so that all
+  // clients (especially when using the Railway relay) see the same
+  // countdown within a small margin.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const r = await fetch("https://worldtimeapi.org/api/ip", { cache: "no-store" });
+      const d = await r.json();
+      if (typeof d.unixtime === "number") {
+        timeOffsetSec = d.unixtime - Math.floor(Date.now() / 1000);
+        break;
+      }
+    } catch (_) {}
+    // Small delay before retry
+    await new Promise(r => setTimeout(r, 400));
+  }
 }
 function nowSec() { return Math.floor(Date.now() / 1000) + timeOffsetSec; }
 
@@ -863,6 +937,41 @@ function trackWinnerChanges(gs) {
   pushWinnerEntry(w58, Date.now(), false);
 }
 
+// Play-song routing: restart on winner change or new button press (sessionPlays),
+// stop when we leave ACTIVE. This runs for all users, so everyone hears the same
+// song pattern driven by on-chain state (via relay or polling).
+function handlePlaySongForState(gs) {
+  if (!gs) {
+    lastSongWinner = null;
+    lastSongPlays  = null;
+    stopPlaySong();
+    return;
+  }
+
+  const phase = computePhase(gs, nowSec());
+  const winner58 = gs.currentWinner.toBase58();
+  const playsNow = Number(gs.sessionPlays || 0);
+
+  if (phase !== "ACTIVE") {
+    // Only run the play song during an active round.
+    lastSongWinner = winner58;
+    lastSongPlays  = playsNow;
+    stopPlaySong();
+    return;
+  }
+
+  const winnerChanged = lastSongWinner !== null && winner58 !== lastSongWinner;
+  const playsChanged  = lastSongPlays  !== null && playsNow !== lastSongPlays;
+
+  // First active state we see, or any winner or plays change → restart song
+  if (lastSongWinner === null || winnerChanged || playsChanged) {
+    lastSongWinner = winner58;
+    lastSongPlays  = playsNow;
+    stopPlaySong();
+    startPlaySong();
+  }
+}
+
 function pushWinnerEntry(w58, tsMs, isInitial) {
   if (winnerHistory[0]?.winner === w58) return;
   winnerHistory.unshift({ winner: w58, tsMs, isInitial });
@@ -959,8 +1068,6 @@ function installWalletListeners(provider) {
 async function connectWallet() {
   const provider = getWalletProvider();
   if (!provider) { showNoWalletCard(); return false; }
-
-  startBgMusicIfAllowed();
 
   let resp;
   try {
@@ -1085,15 +1192,38 @@ async function refreshStateOnly(source = "manual") {
 
     const acc = await connection.getAccountInfo(statePk, "confirmed");
     if (!acc?.data) {
-      latestState = null;
-      if (phaseText) phaseText.textContent = "Could not load game state";
-      mainBtn.classList.add("disabled");
-      mainBtn.disabled = true;
-      setLabel("ERROR");
+      // No on-chain state yet — treat as pre-launch demo mode.
+      latestState    = null;
+      simulationMode = true;
+      if (phaseText) phaseText.textContent = "Game not live yet — demo mode";
+      if (potDisplay) potDisplay.textContent = fmtRounded(getSimulatedPotRaw());
+      if (vaultText) vaultText.textContent = `${fmtTokenExact(getSimulatedVaultRaw())} tokens (simulated)`;
+      mainBtn.classList.remove("disabled", "claimLocked", "claimArmed");
+      mainBtn.disabled = false;
+      setLabel("WAIT");
+      preLaunchCard?.classList.remove("hidden");
       return;
     }
 
     const decoded = decodeState(acc.data);
+
+    // If the program reports disabled, also treat as pre-launch demo.
+    if (!decoded.enabled) {
+      latestState    = null;
+      simulationMode = true;
+      if (phaseText) phaseText.textContent = "Game not live yet — demo mode";
+      if (potDisplay) potDisplay.textContent = fmtRounded(getSimulatedPotRaw());
+      if (vaultText) vaultText.textContent = `${fmtTokenExact(getSimulatedVaultRaw())} tokens (simulated)`;
+      mainBtn.classList.remove("disabled", "claimLocked", "claimArmed");
+      mainBtn.disabled = false;
+      setLabel("WAIT");
+      preLaunchCard?.classList.remove("hidden");
+      return;
+    } else {
+      simulationMode = false;
+      preLaunchCard?.classList.add("hidden");
+    }
+
     const sig     = stateSignature(decoded);
     const changed = sig !== lastStateSig;
 
@@ -1105,6 +1235,7 @@ async function refreshStateOnly(source = "manual") {
       lastStateSig = sig;
       handleWooshOnTimerReset(decoded);
       trackWinnerChanges(decoded);
+    handlePlaySongForState(decoded);
 
       const w = decoded.currentWinner.toBase58();
       winnerLink.textContent = w === PublicKey.default.toBase58() ? "—" : w;
@@ -1193,7 +1324,12 @@ function computePotFromStateAndVault(gs, vaultAmount) {
 }
 
 function renderPotIfNeeded() {
-  if (!latestState || !potDisplay) return;
+  if (!potDisplay) return;
+  if (simulationMode && !latestState) {
+    potDisplay.textContent = fmtRounded(getSimulatedPotRaw());
+    return;
+  }
+  if (!latestState) return;
   if (potAnimActive) return; // animation is controlling the pot text
 
   const now   = nowSec();
@@ -1280,10 +1416,22 @@ function setLabel(text) {
 function render() {
   renderWalletPill();
   renderBalanceBar();
-  if (!latestState) return;
+  if (!latestState) {
+    if (simulationMode) {
+      // Pre-launch demo: static timer + simulated pot
+      if (phaseText)    phaseText.textContent    = "Game not live yet — demo mode";
+      if (clockLabel)   clockLabel.textContent   = "Waiting";
+      if (clockDisplay) clockDisplay.textContent = fmtClock(60);
+      if (barFill)      barFill.style.width      = "0%";
+      if (potDisplay)   potDisplay.textContent   = fmtRounded(getSimulatedPotRaw());
+    }
+    return;
+  }
 
   const now   = nowSec();
   const phase = computePhase(latestState, now);
+
+   updatePhaseMusic(phase);
 
   renderPotIfNeeded();
   updateThresholdPanelIfNeeded();
@@ -1312,9 +1460,12 @@ function render() {
     if (clockLabel) clockLabel.textContent = "Cooldown";
     const total = Math.max(1, (latestState.cooldownEnd - latestState.timerEnd) || 1);
     pct = Math.max(0, Math.min(1, (total - secondsLeft) / total));
-  } else if (phase === "POST_COOLDOWN_UNCLAIMED") {
+  } else if (phase === "POST_COOLDOWN_UNCLAIMED" || phase === "DISABLED" || phase === "IDLE") {
+    // Waiting phases (including after cooldown before first play): show full round duration (default 60s)
     if (clockLabel) clockLabel.textContent = "Waiting";
-    secondsLeft = 0; pct = 1;
+    const base = Number(latestState.roundDurationSecs || 60);
+    secondsLeft = base;
+    pct = 0;
   } else {
     if (clockLabel) clockLabel.textContent = "Waiting";
     secondsLeft = 0; pct = 0;
@@ -1403,7 +1554,10 @@ async function ensureAtaExistsForWallet() {
 // MAIN BUTTON ACTION
 /////////////////////////////
 async function onMain() {
-  if (!latestState) return;
+  // Pre-launch / demo mode: let users press the button, but never hit Solana.
+  if (simulationMode || !latestState || !latestState.enabled) {
+    return;
+  }
 
   // No wallet → connect first, then retry
   if (!walletPubkey) {
@@ -1655,6 +1809,22 @@ function applyRelayState(payload) {
     bump:              gs.bump,
   };
 
+  if (!decoded.enabled) {
+    latestState    = null;
+    simulationMode = true;
+    if (phaseText) phaseText.textContent = "Game not live yet — demo mode";
+    if (potDisplay) potDisplay.textContent = fmtRounded(getSimulatedPotRaw());
+    if (vaultText) vaultText.textContent = `${fmtTokenExact(getSimulatedVaultRaw())} tokens (simulated)`;
+    mainBtn.classList.remove("disabled", "claimLocked", "claimArmed");
+    mainBtn.disabled = false;
+    setLabel("WAIT");
+    preLaunchCard?.classList.remove("hidden");
+    return;
+  } else {
+    simulationMode = false;
+    preLaunchCard?.classList.add("hidden");
+  }
+
   const sig     = stateSignature(decoded);
   const changed = sig !== lastStateSig;
   latestState = decoded;
@@ -1666,6 +1836,7 @@ function applyRelayState(payload) {
     lastStateSig = sig;
     handleWooshOnTimerReset(decoded);
     trackWinnerChanges(decoded);
+    handlePlaySongForState(decoded);
 
     const w = decoded.currentWinner.toBase58();
     winnerLink.textContent = w === PublicKey.default.toBase58() ? "—" : w;
@@ -1748,7 +1919,6 @@ function connectRelay() {
   }
 
   await ensureMintDecimals();
-  if (!musicMuted) startBgMusicIfAllowed();
 
   if (RELAY_URL) {
     try {
