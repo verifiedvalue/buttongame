@@ -5,304 +5,366 @@
 /////////////////////////////
 const PROGRAM_ID = "BzRDQGEakfGQJrucuScr77QoQdckmLmNGSdqveea9MyL";
 const GAME_MINT  = "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU";
+const STATE      = "FnCLwBY38p1LUtCs6GaC438EZ3HmanAdAhGB4nfNANAz";
+const VAULT      = "CbpG1mzYkbPKAKcVMDsjfPnqJhDdHceHXuuQ9UUeA9K";
 
-const STATE = "FnCLwBY38p1LUtCs6GaC438EZ3HmanAdAhGB4nfNANAz";
-const VAULT = "CbpG1mzYkbPKAKcVMDsjfPnqJhDdHceHXuuQ9UUeA9K";
+let CLUSTER = "devnet"; // set to "mainnet-beta" for production
 
-let CLUSTER = "devnet"; // change if needed
+// ─── RELAY SERVER ──────────────────────────────────────────────────────────────
+// HOW TO ENABLE THE RELAY (sub-second updates, scales to any number of players)
+// ─────────────────────────────────────────────────────────────────────────────
+// 1. Deploy relay-server.js to Railway (see README.md for the full walkthrough):
+//      a. Push relay-server.js + package.json to a GitHub repo
+//      b. Go to railway.app → New Project → Deploy from GitHub repo
+//      c. Set env vars: CLUSTER=devnet  (or mainnet-beta)
+//      d. Generate a public domain in Railway's Settings tab
+//      e. Confirm it works: https://YOUR-RELAY.up.railway.app/health
+//
+// 2. Paste the Railway URL below — no trailing slash:
+//
+//    const RELAY_URL = "https://YOUR-RELAY.up.railway.app";
+//
+// 3. Save app.js and redeploy your frontend. That's it.
+//
+// While null, the app polls Solana directly — fine for testing, but every user
+// makes their own RPC calls (doesn't scale, higher latency ~2–4 s).
+const RELAY_URL = "https://buttongamerelay-production.up.railway.app/"; // ← PASTE YOUR RELAY URL HERE AFTER DEPLOYING
 
-// Poll tuning (critical state stays frequent; expensive reads are gated)
-const STATE_POLL_MS = 2000;      // keep game state responsive
-const UI_TICK_MS    = 100;       // smooth clock/progress UI (no RPC)
-const VAULT_TTL_MS  = 30000;     // safety refresh for vault occasionally, even if plays don't change
-const FAST_SYNC_MS  = 250;       // post-tx quick state sync burst
-const FAST_SYNC_TRIES = 12;      // ~3 seconds
+// Testing: pretend vault (and thus pot) is this many times larger for display only.
+// Set to 1n for production.
+const VAULT_DISPLAY_MULTIPLIER = 10_000_000n;
+
+const STATE_POLL_MS            = 4000;
+const UI_TICK_MS               = 100;
+const VAULT_TTL_MS             = 30000;
+const FAST_SYNC_MS             = 250;
+const FAST_SYNC_TRIES          = 12;
+const STATE_POLL_JITTER_MS     = 2000;
+const STATE_POLL_BACKOFF_MAX_MS = 30000;
 
 /////////////////////////////
-// SOLANA
+// SOLANA SETUP
 /////////////////////////////
 const { Connection, PublicKey, Transaction, TransactionInstruction } = solanaWeb3;
 
-const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+const TOKEN_PROGRAM_ID            = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
-const SYSVAR_CLOCK_PUBKEY = new PublicKey("SysvarC1ock11111111111111111111111111111111");
+const SYSVAR_CLOCK_PUBKEY         = new PublicKey("SysvarC1ock11111111111111111111111111111111");
 
 const programIdPk = new PublicKey(PROGRAM_ID);
-const mintPk = new PublicKey(GAME_MINT);
-const statePk = new PublicKey(STATE);
-const vaultPk = new PublicKey(VAULT);
+const mintPk      = new PublicKey(GAME_MINT);
+const statePk     = new PublicKey(STATE);
+const vaultPk     = new PublicKey(VAULT);
 
 let connection = null;
 
 /////////////////////////////
-// UI
+// DOM REFS
 /////////////////////////////
-const el = (id) => document.getElementById(id);
+const el = id => document.getElementById(id);
 
-const walletDot = el("walletDot");
-const walletText = el("walletText");
-const connectBtn = el("connectBtn");
+// Top bar
+const walletDot     = el("walletDot");
+const walletText    = el("walletText");
+const connectBtn    = el("connectBtn");
 const disconnectBtn = el("disconnectBtn");
+const relayStatusEl = el("relayStatus");
 
+// Pot
 const potDisplay = el("potDisplay");
-const phaseText = el("phaseText");
-const mainBtn = el("mainBtn");
-const mainHint = el("mainHint");
+const phaseText  = el("phaseText");
 
-const clockLabel = el("clockLabel");
+// Button
+const mainBtn    = el("mainBtn");
+const btnLabelEl = el("btnLabelEl");
+const btnSpinner = el("btnSpinner");
+const btnGlowRing = el("btnGlowRing");
+
+// Timer
+const clockLabel   = el("clockLabel");
 const clockDisplay = el("clockDisplay");
-const barFill = el("barFill");
+const barFill      = el("barFill");
+const timerHint    = el("timerHint");
 
-const toggleDetailsBtn = el("toggleDetailsBtn");
-const detailsPanel = el("detailsPanel");
+// Balance bar
+const balanceBar     = el("balanceBar");
+const balanceAmount  = el("balanceAmount");
+const balanceWarning = el("balanceWarning");
 
-const programLink = el("programLink");
-const stateLink = el("stateLink");
-const vaultLink = el("vaultLink");
-const mintLink = el("mintLink");
+// Onboarding cards
+const noWalletCard  = el("noWalletCard");
+const noAtaCard     = el("noAtaCard");
+const ataPlayCostEl = el("ataPlayCost");
+const ataMintLinkEl = el("ataMintLink");
 
-const winnerLink = el("winnerLink");
-const unclaimedText = el("unclaimedText");
-const playCostText = el("playCostText");
-const vaultText = el("vaultText");
+// Share card
+const shareCard           = el("shareCard");
+const shareTwitterBtn     = el("shareTwitterBtn");
+const shareCopyBtn        = el("shareCopyBtn");
+const claimShareCard      = el("claimShareCard");
+const claimShareTwitterBtn = el("claimShareTwitterBtn");
+const claimShareCopyBtn   = el("claimShareCopyBtn");
+const claimShareAmount    = el("claimShareAmount");
 
-// Winner log container
+// Toast
+const toastContainer = el("toastContainer");
+
+// Feed
 const winnerLogEl = el("winnerNow");
 
-// Threshold / progress panel elements
+// Sidebar (Pot Unlocks + On-chain Details)
+const sidebar           = el("sidebar");
+const sidebarToggleBtn  = el("sidebarToggleBtn");
+const sidebarCloseBtn   = el("sidebarCloseBtn");
+
+// Details (inside sidebar)
+const toggleDetailsBtn = el("toggleDetailsBtn");
+const detailsPanel     = el("detailsPanel");
+const programLink      = el("programLink");
+const stateLink        = el("stateLink");
+const vaultLink        = el("vaultLink");
+const mintLink         = el("mintLink");
+const winnerLink       = el("winnerLink");
+const unclaimedText    = el("unclaimedText");
+const playCostText     = el("playCostText");
+const vaultText        = el("vaultText");
+
+// Threshold panel
 const tpProjectedPot = el("tpProjectedPot");
 const tpVaultBalance = el("tpVaultBalance");
-const tpPlays = el("tpPlays");
-const tpDivisor = el("tpDivisor");
-const tpBarFill = el("tpBarFill");
-const tpBarLeft = el("tpBarLeft");
-const tpBarRight = el("tpBarRight");
-const tpFoot = el("tpFoot");
+const tpPlays        = el("tpPlays");
+const tpDivisor      = el("tpDivisor"); // optional — null-guarded
+const tpBarFill      = el("tpBarFill");
+const tpBarLeft      = el("tpBarLeft");
+const tpBarRight     = el("tpBarRight");
+const tpFoot         = el("tpFoot");
+const tier0          = el("tier0");
+const tier1          = el("tier1");
+const tier2          = el("tier2");
+const tier0Reward    = el("tier0Reward");
+const tier1Reward    = el("tier1Reward");
+const tier2Reward    = el("tier2Reward");
 
-const tier0 = el("tier0");
-const tier1 = el("tier1");
-const tier2 = el("tier2");
-const tier0Reward = el("tier0Reward");
-const tier1Reward = el("tier1Reward");
-const tier2Reward = el("tier2Reward");
-
-/////////////////////////////
-// Frontend state
-/////////////////////////////
-let walletPubkey = null;
-let mintDecimals = 6;
-
-let latestState = null;
-let latestVaultAmount = 0n;
-
-let mainMode = "PLAY";   // "PLAY" | "CLAIM"
-let claimArmed = false;
-
-// ---- Session-only winner history ----
-const MAX_WINNER_LOG = 25;
-let lastWinnerSeen = null; // base58 string
-let winnerHistory = [];    // { winner, tsMs, isInitial }
-
-// Winner song transition tracking
-let wasWinnerLastRender = false;
-
-/////////////////////////////
-// RPC minimization state
-/////////////////////////////
-let lastStateSig = "";                 // signature of state fields used to detect meaningful changes
-let lastPlaysSeen = null;              // used as primary trigger for expensive reads (vault)
-let lastVaultFetchMs = 0;              // TTL-based backup refresh
-let vaultFetchInFlight = false;
-let statePollInFlight = false;
-
-// Wallet ATA existence cache (per wallet session)
-let cachedAtaOwner58 = null;
-let cachedAtaExists = false;
-
-/////////////////////////////
-// AUDIO (Music + SFX toggles)
-/////////////////////////////
-let lastTimerEndSeen = null; // number | null
-let suppressNextWoosh = false;
-
-// UI buttons (add these to your HTML)
+// Audio controls
 const musicMuteBtn = el("musicMuteBtn");
 const sfxMuteBtn   = el("sfxMuteBtn");
 
-// Persist user choice
+/////////////////////////////
+// PARTICLES
+/////////////////////////////
+const particleCanvas = el("particleCanvas");
+let pctx = null;
+if (particleCanvas) {
+  pctx = particleCanvas.getContext("2d");
+  particleCanvas.width  = window.innerWidth;
+  particleCanvas.height = window.innerHeight;
+  window.addEventListener("resize", () => {
+    particleCanvas.width  = window.innerWidth;
+    particleCanvas.height = window.innerHeight;
+  });
+}
+let particles = [];
+
+function spawnParticles(x, y, color = "#4285F4") {
+  for (let i = 0; i < 28; i++) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 2 + Math.random() * 6;
+    particles.push({
+      x, y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 2,
+      life: 1,
+      decay: 0.025 + Math.random() * 0.03,
+      size: 2 + Math.random() * 4,
+      color,
+    });
+  }
+}
+
+function animateParticles() {
+  if (!pctx) return;
+  pctx.clearRect(0, 0, particleCanvas.width, particleCanvas.height);
+  particles = particles.filter(p => p.life > 0);
+  for (const p of particles) {
+    p.x  += p.vx;
+    p.y  += p.vy;
+    p.vy += 0.15;
+    p.life -= p.decay;
+    pctx.globalAlpha = Math.max(0, p.life);
+    pctx.fillStyle   = p.color;
+    pctx.beginPath();
+    pctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+    pctx.fill();
+  }
+  pctx.globalAlpha = 1;
+  requestAnimationFrame(animateParticles);
+}
+animateParticles();
+
+/////////////////////////////
+// FRONTEND STATE
+/////////////////////////////
+let walletPubkey     = null;
+let mintDecimals     = 6;
+let latestState      = null;
+let latestVaultAmount = 0n;
+
+function getDisplayVault() {
+  return latestVaultAmount * VAULT_DISPLAY_MULTIPLIER;
+}
+let mainMode         = "PLAY";   // "PLAY" | "CLAIM"
+let claimArmed       = false;
+let userTokenBalance = null;     // BigInt | null
+let btnPendingActive = false;    // true while tx is in flight
+let shareCardVisible      = false;
+let claimShareCardVisible = false;
+let lastClaimedAmount     = null; // snapshot of pot amount at claim time
+
+// Winner feed
+const MAX_WINNER_LOG = 25;
+let lastWinnerSeen      = null;
+let winnerHistory       = [];
+let wasWinnerLastRender = false;
+
+// RPC gating
+let lastStateSig          = "";
+let lastPlaysSeen         = null;
+let lastVaultFetchMs      = 0;
+let vaultFetchInFlight    = false;
+let statePollInFlight     = false;
+let statePollTimer        = null;
+let consecutiveStateErrors = 0;
+
+// ATA cache
+let cachedAtaOwner58 = null;
+let cachedAtaExists  = false;
+
+/////////////////////////////
+// TOAST SYSTEM
+/////////////////////////////
+const TOAST_DURATION = { error: 7000, info: 4000, success: 4000, warn: 5000 };
+const TOAST_ICONS    = { error: "✕", info: "ℹ", success: "✓", warn: "⚠" };
+
+/**
+ * showToast({ type, title, message, duration })
+ * Returns a toast handle with a ._dismiss() method for early removal.
+ */
+function showToast({ type = "info", title = "", message = "", duration } = {}) {
+  if (!toastContainer) return null;
+
+  const toast = document.createElement("div");
+  toast.className = `toast toast-${type}`;
+  toast.setAttribute("role", "alert");
+
+  const dur = duration ?? TOAST_DURATION[type] ?? 4000;
+
+  toast.innerHTML = `
+    <span class="toast-icon">${TOAST_ICONS[type]}</span>
+    <div class="toast-body">
+      ${title   ? `<div class="toast-title">${escapeHtml(title)}</div>`   : ""}
+      ${message ? `<div class="toast-msg">${escapeHtml(message)}</div>` : ""}
+    </div>
+    <button class="toast-close" aria-label="Dismiss">×</button>
+  `;
+
+  toastContainer.appendChild(toast);
+
+  function dismiss() {
+    if (!toast.parentNode) return;
+    toast.classList.add("toast-leaving");
+    setTimeout(() => toast.remove(), 260);
+  }
+
+  toast.querySelector(".toast-close").addEventListener("click", dismiss);
+  const timer = setTimeout(dismiss, dur);
+  toast._dismiss = () => { clearTimeout(timer); dismiss(); };
+
+  return toast;
+}
+
+const toastError   = (t, m) => showToast({ type: "error",   title: t, message: m });
+const toastSuccess = (t, m) => showToast({ type: "success", title: t, message: m });
+const toastInfo    = (t, m) => showToast({ type: "info",    title: t, message: m });
+const toastWarn    = (t, m) => showToast({ type: "warn",    title: t, message: m });
+
+/////////////////////////////
+// AUDIO
+/////////////////////////////
+let lastTimerEndSeen  = null;
+let suppressNextWoosh = false;
+
 const LS_MUSIC_MUTED = "buttonGame_musicMuted";
 const LS_SFX_MUTED   = "buttonGame_sfxMuted";
 
 let musicMuted = localStorage.getItem(LS_MUSIC_MUTED) === "1";
-let sfxMuted   = localStorage.getItem(LS_SFX_MUTED) === "1";
+let sfxMuted   = localStorage.getItem(LS_SFX_MUTED)   === "1";
 
-// --- Music (global background) ---
 const bgMusic = new Audio("winner.wav");
-bgMusic.preload = "auto";
-bgMusic.loop = true;
-bgMusic.volume = 0.3;
-let bgMusicPlaying = false;
+bgMusic.preload = "auto"; bgMusic.loop = true; bgMusic.volume = 0.3;
 
-// --- SFX ---
-const sfxDown = new Audio("clickdown.wav");
-const sfxUp   = new Audio("clickup.wav");
-const sfxWoosh = new Audio("woosh.wav");
+const sfxDown        = new Audio("clickdown.wav");
+const sfxUp          = new Audio("clickup.wav");
+const sfxWoosh       = new Audio("woosh.wav");
 const sfxPlayComplete = new Audio("play.wav");
+[sfxDown, sfxUp, sfxWoosh, sfxPlayComplete].forEach(a => a.preload = "auto");
+sfxWoosh.volume = 0.6; sfxPlayComplete.volume = 0.8;
 
-sfxDown.preload = "auto";
-sfxUp.preload = "auto";
-sfxWoosh.preload = "auto";
-sfxPlayComplete.preload = "auto";
-
-sfxWoosh.volume = 0.6;
-sfxPlayComplete.volume = 0.8;
-
-let audioUnlocked = false;
-
-/**
- * Unlock audio once on a user gesture.
- * We "prime" SFX by playing muted briefly then pausing.
- */
-function unlockAudioOnce() {
-  if (audioUnlocked) return;
-  audioUnlocked = true;
-
-  // Load everything
-  try { bgMusic.load(); } catch {}
-  try { sfxDown.load(); } catch {}
-  try { sfxUp.load(); } catch {}
-  try { sfxWoosh.load(); } catch {}
-  try { sfxPlayComplete.load(); } catch {}
-
-  // Prime ONLY SFX (not bgMusic) to satisfy autoplay policies.
-  const primeSfx = (aud) => {
-    if (!aud) return;
-    try {
-      const prevMuted = aud.muted;
-      const prevVol = aud.volume;
-
-      aud.muted = true;
-      aud.volume = 0;
-
-      const p = aud.play();
-      if (p && typeof p.then === "function") {
-        p.then(() => {
-          try { aud.pause(); } catch {}
-          try { aud.currentTime = 0; } catch {}
-          aud.muted = prevMuted;
-          aud.volume = prevVol;
-        }).catch(() => {
-          aud.muted = prevMuted;
-          aud.volume = prevVol;
-        });
-      } else {
-        aud.muted = prevMuted;
-        aud.volume = prevVol;
-      }
-    } catch {}
-  };
-
-  primeSfx(sfxDown);
-  primeSfx(sfxUp);
-  primeSfx(sfxWoosh);
-  primeSfx(sfxPlayComplete);
-
-  ensureBgMusicState();
+function startBgMusicIfAllowed() { if (!musicMuted) try { bgMusic.play().catch(() => {}); } catch {} }
+function stopBgMusic()           { try { bgMusic.pause(); } catch {} }
+function playSfx(a) {
+  if (!a || sfxMuted) return;
+  try { a.currentTime = 0; a.play().catch(() => {}); } catch {}
 }
 
-function ensureBgMusicState() {
-  bgMusic.muted = musicMuted;
-
-  if (musicMuted) {
-    stopBgMusic();
-    return;
-  }
-
-  if (!bgMusicPlaying) {
-    try {
-      bgMusic.currentTime = 0;
-      bgMusic.play().then(() => {
-        bgMusicPlaying = true;
-      }).catch(() => {
-        bgMusicPlaying = false;
-      });
-    } catch {
-      bgMusicPlaying = false;
-    }
-  }
-}
-
-function stopBgMusic() {
-  try { bgMusic.pause(); } catch {}
-  bgMusicPlaying = false;
-}
-
-// Unified SFX play helper (respects sfxMuted)
-function playSfx(aud) {
-  if (!aud || sfxMuted) return;
-
-  try {
-    // Clone so it doesn't fight the bgMusic element
-    const a = aud.cloneNode(true);
-    a.muted = false;
-    a.volume = aud.volume;
-    a.play().catch(() => {});
-  } catch {}
-}
-
-function setMusicMuted(muted) {
-  musicMuted = !!muted;
+function setMusicMuted(v) {
+  musicMuted = !!v;
   localStorage.setItem(LS_MUSIC_MUTED, musicMuted ? "1" : "0");
   updateAudioButtons();
-  ensureBgMusicState();
+  musicMuted ? stopBgMusic() : startBgMusicIfAllowed();
 }
-
-function setSfxMuted(muted) {
-  sfxMuted = !!muted;
+function setSfxMuted(v) {
+  sfxMuted = !!v;
   localStorage.setItem(LS_SFX_MUTED, sfxMuted ? "1" : "0");
   updateAudioButtons();
 }
-
 function updateAudioButtons() {
-  if (musicMuteBtn) musicMuteBtn.textContent = musicMuted ? "Music: OFF" : "Music: ON";
-  if (sfxMuteBtn)   sfxMuteBtn.textContent   = sfxMuted ? "SFX: OFF"   : "SFX: ON";
+  if (musicMuteBtn) {
+    const s = musicMuteBtn.querySelector(".audio-state");
+    if (s) s.textContent = musicMuted ? "OFF" : "ON";
+    musicMuteBtn.classList.toggle("muted", musicMuted);
+  }
+  if (sfxMuteBtn) {
+    const s = sfxMuteBtn.querySelector(".audio-state");
+    if (s) s.textContent = sfxMuted ? "OFF" : "ON";
+    sfxMuteBtn.classList.toggle("muted", sfxMuted);
+  }
 }
-
-if (musicMuteBtn) {
-  musicMuteBtn.addEventListener("click", () => {
-    unlockAudioOnce();
-    setMusicMuted(!musicMuted);
-  });
-}
-if (sfxMuteBtn) {
-  sfxMuteBtn.addEventListener("click", () => {
-    unlockAudioOnce();
-    setSfxMuted(!sfxMuted);
-  });
-}
+if (musicMuteBtn) musicMuteBtn.addEventListener("click", () => setMusicMuted(!musicMuted));
+if (sfxMuteBtn)   sfxMuteBtn.addEventListener("click",   () => setSfxMuted(!sfxMuted));
 updateAudioButtons();
 
 /////////////////////////////
-// Helpers
+// HELPERS
 /////////////////////////////
 function rpcUrl() {
-  if (CLUSTER === "devnet") return "https://api.devnet.solana.com";
-  return "https://api.mainnet-beta.solana.com";
+  return CLUSTER === "devnet"
+    ? "https://api.devnet.solana.com"
+    : "https://api.mainnet-beta.solana.com";
 }
-
-function solscanAccountUrl(pubkey) {
-  if (CLUSTER === "devnet") return `https://solscan.io/account/${pubkey}?cluster=devnet`;
-  return `https://solscan.io/account/${pubkey}`;
+function solscanAccountUrl(pk) {
+  return CLUSTER === "devnet"
+    ? `https://solscan.io/account/${pk}?cluster=devnet`
+    : `https://solscan.io/account/${pk}`;
 }
 function solscanTxUrl(sig) {
-  if (CLUSTER === "devnet") return `https://solscan.io/tx/${sig}?cluster=devnet`;
-  return `https://solscan.io/tx/${sig}`;
+  return CLUSTER === "devnet"
+    ? `https://solscan.io/tx/${sig}?cluster=devnet`
+    : `https://solscan.io/tx/${sig}`;
 }
 
 function addLog(line, linkUrl = null) {
   const log = el("activityLog");
   if (!log) return;
-
   const div = document.createElement("div");
   div.className = "logLine";
   if (linkUrl) {
@@ -314,26 +376,22 @@ function addLog(line, linkUrl = null) {
 }
 
 function escapeHtml(s) {
-  return String(s).replace(/[&<>"']/g, (c) => ({
-    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
-  }[c]));
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" }[c])
+  );
 }
 
-function nowSec() {
-  return Math.floor(Date.now() / 1000);
-}
+function nowSec() { return Math.floor(Date.now() / 1000); }
 
 function fmtClock(seconds) {
   const s = Math.max(0, Math.floor(seconds));
-  const mm = Math.floor(s / 60);
-  const ss = s % 60;
-  return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
 }
 
-function fmtTokenExact(baseUnitsBigInt) {
+function fmtTokenExact(n) {
   const d = BigInt(10) ** BigInt(mintDecimals);
-  const whole = baseUnitsBigInt / d;
-  const frac = baseUnitsBigInt % d;
+  const whole = n / d;
+  const frac  = n % d;
   const fracStr = frac.toString().padStart(mintDecimals, "0").slice(0, Math.min(6, mintDecimals));
   return mintDecimals === 0 ? `${whole}` : `${whole}.${fracStr}`;
 }
@@ -344,365 +402,513 @@ function shortPk(pk58) {
 }
 
 async function getMintDecimals() {
-  const info = await connection.getParsedAccountInfo(mintPk, "confirmed");
-  const parsed = info?.value?.data?.parsed;
-  const decimals = parsed?.info?.decimals;
-  if (typeof decimals === "number") return decimals;
-  return mintDecimals;
+  const info     = await connection.getParsedAccountInfo(mintPk, "confirmed");
+  const decimals = info?.value?.data?.parsed?.info?.decimals;
+  return typeof decimals === "number" ? decimals : mintDecimals;
 }
 
 let mintDecimalsLoaded = false;
 async function ensureMintDecimals() {
   if (mintDecimalsLoaded) return;
-  try {
-    mintDecimals = await getMintDecimals();
-    mintDecimalsLoaded = true;
-  } catch {}
+  try { mintDecimals = await getMintDecimals(); mintDecimalsLoaded = true; } catch {}
 }
 
-// Matches on-chain pot divisor logic (based on session_plays)
-function potDivisorFromPlays(sessionPlays) {
-  const p = Number(sessionPlays || 0);
-  if (p < 250) return 40n;
+function potDivisorFromPlays(plays) {
+  const p = Number(plays || 0);
+  if (p < 250)  return 40n;
   if (p < 1000) return 10n;
-  if (p < 5000) return 5n;
   return 5n;
 }
 
-const tokenIntFormatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+const tokenIntFmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+function fmtRounded(n) { return tokenIntFmt.format(Number(n) / (10 ** mintDecimals)); }
 
-function fmtTokenRoundedWithCommas(baseUnitsBigInt) {
-  const denom = 10 ** mintDecimals;
-  const v = Number(baseUnitsBigInt) / denom;
-  return tokenIntFormatter.format(v);
+function fmtTierReward(divisor) {
+  const extra = divisor == 5n  ? 25000n * 1_000_000_000n
+              : divisor == 10n ?  2500n * 1_000_000_000n
+              : divisor == 20n ?   250n * 1_000_000_000n : 0n;
+  const displayVault = getDisplayVault();
+  const displayExtra = extra * VAULT_DISPLAY_MULTIPLIER;
+  return divisor > 0n ? fmtRounded((displayVault + displayExtra) / divisor) : "0";
 }
 
-function fmtTierReward(divisorBigInt) {
-  let playAmount = BigInt(0);
-  // NOTE: your existing constants use 1e9 base units; keep as-is to match your game token math.
-  if (divisorBigInt == 5n) playAmount = 25000n * 1000000000n;
-  else if (divisorBigInt == 10n) playAmount = 2500n * 1000000000n;
-  else if (divisorBigInt == 20n) playAmount = 250n * 1000000000n;
-
-  const pot = divisorBigInt > 0n ? ((latestVaultAmount + playAmount) / divisorBigInt) : 0n;
-  return `${fmtTokenRoundedWithCommas(pot)}`;
+/////////////////////////////
+// BUTTON PENDING STATE
+/////////////////////////////
+/**
+ * setBtnPending(true, "SIGNING…")  — show spinner, set label, block render()
+ * setBtnPending(false)             — hide spinner, hand control back to render()
+ */
+function setBtnPending(active, label = "") {
+  btnPendingActive = active;
+  if (active) {
+    mainBtn.disabled = true;
+    if (btnSpinner) btnSpinner.classList.remove("hidden");
+    if (btnLabelEl) btnLabelEl.textContent = label;
+  } else {
+    mainBtn.disabled = false;
+    if (btnSpinner) btnSpinner.classList.add("hidden");
+    render(); // let render() put the button back in the right state
+  }
 }
 
+/////////////////////////////
+// SEND TRANSACTION
+// Accepts an onStep callback so callers can update labels mid-flight.
+// onStep("signing")    — before wallet prompt
+// onStep("sending")    — after signing, before broadcast
+// onStep("confirming") — after broadcast, before confirmation
+/////////////////////////////
+async function sendTx(ix, onStep) {
+  const provider = getWalletProvider();
+  if (!provider?.publicKey) throw new Error("Wallet not connected");
+
+  onStep?.("signing");
+  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+  const tx = new Transaction({ recentBlockhash: blockhash, feePayer: provider.publicKey });
+  tx.add(ix);
+  const signed = await provider.signTransaction(tx);
+
+  onStep?.("sending");
+  const sig = await connection.sendRawTransaction(signed.serialize(), {
+    skipPreflight: false,
+    preflightCommitment: "confirmed",
+  });
+  addLog("Sent tx", solscanTxUrl(sig));
+
+  onStep?.("confirming");
+  await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
+  addLog("Confirmed", solscanTxUrl(sig));
+  return sig;
+}
+
+async function fastStateSyncBurst() {
+  // Fire an immediate read right away to catch the state change ASAP.
+  // Then schedule follow-up reads — stop early once we detect the new state.
+  await refreshStateOnly("fast-sync-0");
+
+  if (RELAY_URL) {
+    // Relay mode: SSE push normally arrives within ~200 ms of the on-chain tx.
+    // Two quick follow-up reads as insurance; the SSE stream handles the rest.
+    await new Promise(r => setTimeout(r, 300));
+    await refreshStateOnly("fast-sync-1");
+    await new Promise(r => setTimeout(r, 600));
+    await refreshStateOnly("fast-sync-2");
+    return;
+  }
+
+  // Direct-RPC mode: poll aggressively but stop as soon as the new state lands.
+  const sigBefore = lastStateSig;
+  const gaps = [150, 250, 350, 500, 600, 700, 800, 900, 1000];
+  for (const gap of gaps) {
+    if (lastStateSig !== sigBefore) break; // got the update — stop early
+    await new Promise(r => setTimeout(r, gap));
+    await refreshStateOnly("fast-sync");
+  }
+}
+
+/////////////////////////////
+// SHARE CARDS
+/////////////////////////////
+function buildShareUrl() { return window.location.href.split("?")[0]; }
+
+// ── LEADING share (during active round) ──────────────────
+function buildLeadingShareText() {
+  const pot = potDisplay?.textContent ?? "?";
+  return `I'm leading the $BUTTON pot — ${pot} tokens up for grabs. Come knock me off. 👆`;
+}
+
+function updateShareCard(isLeading) {
+  if (!shareCard) return;
+  if (isLeading && !shareCardVisible) {
+    shareCard.classList.remove("hidden");
+    shareCardVisible = true;
+  } else if (!isLeading && shareCardVisible) {
+    shareCard.classList.add("hidden");
+    shareCardVisible = false;
+  }
+}
+
+shareTwitterBtn?.addEventListener("click", () => {
+  const text = encodeURIComponent(buildLeadingShareText());
+  const url  = encodeURIComponent(buildShareUrl());
+  window.open(`https://twitter.com/intent/tweet?text=${text}&url=${url}`, "_blank", "noopener");
+});
+
+shareCopyBtn?.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(`${buildLeadingShareText()}\n${buildShareUrl()}`);
+    shareCopyBtn.textContent = "Copied!";
+    shareCopyBtn.classList.add("copied");
+    setTimeout(() => {
+      shareCopyBtn.textContent = "Copy link";
+      shareCopyBtn.classList.remove("copied");
+    }, 2200);
+  } catch {
+    toastError("Copy failed", "Please copy the URL from your address bar manually.");
+  }
+});
+
+// ── CLAIM share (after winning) ──────────────────────────
+function buildClaimShareText(amount) {
+  const url = buildShareUrl();
+  return `Just claimed ${amount} $BUTTON! 🏆 The pot is reset — next round starts the moment someone presses the button. Could be you. ${url}`;
+}
+
+/**
+ * showClaimShareCard(claimedAmount)
+ * Displays the post-claim share card with the exact amount won.
+ * The card auto-hides when the next round goes ACTIVE (someone presses).
+ */
+function showClaimShareCard(claimedAmount) {
+  if (!claimShareCard) return;
+  lastClaimedAmount = claimedAmount;
+  if (claimShareAmount) claimShareAmount.textContent = claimedAmount;
+  claimShareCard.classList.remove("hidden");
+  claimShareCardVisible = true;
+}
+
+function hideClaimShareCard() {
+  if (!claimShareCard) return;
+  claimShareCard.classList.add("hidden");
+  claimShareCardVisible = false;
+}
+
+claimShareTwitterBtn?.addEventListener("click", () => {
+  const amount = lastClaimedAmount ?? (potDisplay?.textContent ?? "?");
+  const text   = encodeURIComponent(buildClaimShareText(amount));
+  window.open(`https://twitter.com/intent/tweet?text=${text}`, "_blank", "noopener");
+});
+
+claimShareCopyBtn?.addEventListener("click", async () => {
+  const amount = lastClaimedAmount ?? (potDisplay?.textContent ?? "?");
+  try {
+    await navigator.clipboard.writeText(buildClaimShareText(amount));
+    claimShareCopyBtn.textContent = "Copied!";
+    claimShareCopyBtn.classList.add("copied");
+    setTimeout(() => {
+      claimShareCopyBtn.textContent = "Copy link";
+      claimShareCopyBtn.classList.remove("copied");
+    }, 2200);
+  } catch {
+    toastError("Copy failed", "Please copy the URL from your address bar manually.");
+  }
+});
+
+/////////////////////////////
+// BALANCE BAR
+/////////////////////////////
+async function refreshUserBalance() {
+  if (!walletPubkey || !connection) return;
+  try {
+    const ata  = findAta(walletPubkey, mintPk);
+    const info = await connection.getTokenAccountBalance(ata, "confirmed");
+    userTokenBalance = BigInt(info?.value?.amount ?? "0");
+  } catch {
+    userTokenBalance = null; // ATA may not exist yet
+  }
+  renderBalanceBar();
+}
+
+function renderBalanceBar() {
+  if (!balanceBar) return;
+  if (!walletPubkey) { balanceBar.classList.add("hidden"); return; }
+
+  balanceBar.classList.remove("hidden");
+
+  if (userTokenBalance === null) {
+    if (balanceAmount) balanceAmount.textContent = "—";
+    if (balanceWarning) balanceWarning.classList.add("hidden");
+    return;
+  }
+
+  if (balanceAmount) balanceAmount.textContent = fmtRounded(userTokenBalance);
+
+  const playCost     = latestState?.playCost ?? 0n;
+  const insufficient = playCost > 0n && userTokenBalance < playCost;
+  if (balanceWarning) balanceWarning.classList.toggle("hidden", !insufficient);
+}
+
+/////////////////////////////
+// ONBOARDING CARDS
+/////////////////////////////
+function showNoWalletCard() {
+  noWalletCard?.classList.remove("hidden");
+  noAtaCard?.classList.add("hidden");
+}
+
+function showNoAtaCard() {
+  if (noAtaCard) {
+    noAtaCard.classList.remove("hidden");
+    if (ataPlayCostEl && latestState) {
+      ataPlayCostEl.textContent = `${fmtRounded(latestState.playCost)} $BUTTON`;
+    }
+    if (ataMintLinkEl) ataMintLinkEl.href = `https://pump.fun/coin/${GAME_MINT}`;
+  }
+  noWalletCard?.classList.add("hidden");
+}
+
+function hideOnboardingCards() {
+  noWalletCard?.classList.add("hidden");
+  noAtaCard?.classList.add("hidden");
+}
+
+/////////////////////////////
+// THRESHOLD PANEL
+/////////////////////////////
 let lastThresholdKey = "";
 function updateThresholdPanelIfNeeded() {
   if (!tpProjectedPot || !latestState) return;
 
-  const key = `${latestState.sessionPlays}|${latestVaultAmount.toString()}`;
+  const key = `${latestState.sessionPlays}|${latestVaultAmount}`;
   if (key === lastThresholdKey) return;
   lastThresholdKey = key;
 
-  const plays = Number(latestState.sessionPlays || 0);
+  const plays   = Number(latestState.sessionPlays || 0);
   const divisor = potDivisorFromPlays(plays);
-  const currentTier = Number(100n) / Number(divisor);
+  const pct     = Number(100n / divisor);
 
-  tpVaultBalance.textContent = fmtTokenRoundedWithCommas(latestVaultAmount);
-  tpProjectedPot.textContent = currentTier + "% of Vault";
-  tpPlays.textContent = String(plays);
-  tpDivisor.textContent = String(divisor);
+  if (tpVaultBalance) tpVaultBalance.textContent = fmtRounded(getDisplayVault());
+  if (tpProjectedPot) tpProjectedPot.textContent = `${pct}% of Vault`;
+  if (tpPlays)        tpPlays.textContent         = String(plays);
+  if (tpDivisor)      tpDivisor.textContent       = String(divisor);
 
   if (tier0Reward) tier0Reward.textContent = fmtTierReward(20n);
   if (tier1Reward) tier1Reward.textContent = fmtTierReward(10n);
   if (tier2Reward) tier2Reward.textContent = fmtTierReward(5n);
 
-  if (tier0) tier0.classList.toggle("tpTierActive", plays > 249 && plays < 2500);
+  if (tier0) tier0.classList.toggle("tpTierActive", plays > 249  && plays < 2500);
   if (tier1) tier1.classList.toggle("tpTierActive", plays > 2499 && plays < 25000);
   if (tier2) tier2.classList.toggle("tpTierActive", plays >= 25000);
 
-  let left = 0, right = 250;
-  if (plays < 250) { left = 0; right = 250; }
-  else if (plays < 1000) { left = 250; right = 1000; }
-  else if (plays < 5000) { left = 1000; right = 5000; }
-  else { left = 5000; right = 5000; }
+  let [left, right] = plays < 250  ? [0, 250]
+                    : plays < 1000 ? [250, 1000]
+                    : plays < 5000 ? [1000, 5000]
+                    :                [5000, 5000];
 
   if (right === left) {
-    if (tpBarFill) tpBarFill.style.width = "100%";
-    if (tpBarLeft) tpBarLeft.textContent = `${plays} plays`;
-    if (tpBarRight) tpBarRight.textContent = `Max tier`;
-    if (tpFoot) tpFoot.textContent = "You’re in the max tier. Rewards are projected from current vault balance.";
+    if (tpBarFill)  tpBarFill.style.width    = "100%";
+    if (tpBarLeft)  tpBarLeft.textContent    = `${plays} plays`;
+    if (tpBarRight) tpBarRight.textContent   = "Max tier";
+    if (tpFoot)     tpFoot.textContent       = "You're in the max tier. Rewards projected from current vault.";
   } else {
-    const span = Math.max(1, (right - left));
-    const pct = Math.max(0, Math.min(1, (plays - left) / span));
-    if (tpBarFill) tpBarFill.style.width = `${pct * 100}%`;
-
-    if (tpBarLeft) tpBarLeft.textContent = `${plays} plays`;
+    const progress = Math.max(0, Math.min(1, (plays - left) / (right - left)));
+    if (tpBarFill)  tpBarFill.style.width  = `${progress * 100}%`;
+    if (tpBarLeft)  tpBarLeft.textContent  = `${plays} plays`;
     if (tpBarRight) tpBarRight.textContent = `Next unlock: ${right}`;
-    if (tpFoot) tpFoot.textContent = "Rewards are projected from current vault balance.";
+    if (tpFoot)     tpFoot.textContent     = "Rewards projected from current vault balance.";
   }
 }
 
 /////////////////////////////
-// Manual state decode (no borsh)
+// STATE DECODE
 /////////////////////////////
-function readPubkey(data, offset) {
-  return new PublicKey(data.slice(offset, offset + 32));
-}
-function readU64(data, offset) {
-  const view = new DataView(data.buffer, data.byteOffset + offset, 8);
-  return BigInt(view.getBigUint64(0, true));
-}
-function readI64(data, offset) {
-  const view = new DataView(data.buffer, data.byteOffset + offset, 8);
-  return Number(view.getBigInt64(0, true));
-}
-function readU32(data, offset) {
-  const view = new DataView(data.buffer, data.byteOffset + offset, 4);
-  return Number(view.getUint32(0, true));
-}
-function decodeState(accountData) {
-  const data = accountData.slice(8); // skip discriminator
+function readPubkey(d, o) { return new PublicKey(d.slice(o, o + 32)); }
+function readU64(d, o)    { return BigInt(new DataView(d.buffer, d.byteOffset + o, 8).getBigUint64(0, true)); }
+function readI64(d, o)    { return Number(new DataView(d.buffer, d.byteOffset + o, 8).getBigInt64(0, true)); }
+function readU32(d, o)    { return Number(new DataView(d.buffer, d.byteOffset + o, 4).getUint32(0, true)); }
+
+function decodeState(raw) {
+  const d = raw.slice(8); // skip 8-byte discriminator
   let o = 0;
-
-  const owner = readPubkey(data, o); o += 32;
-  const tokenMint = readPubkey(data, o); o += 32;
-  const vault = readPubkey(data, o); o += 32;
-
-  const playCost = readU64(data, o); o += 8;
-  const roundDurationSecs = readI64(data, o); o += 8;
-
-  const currentWinner = readPubkey(data, o); o += 32;
-  const currentWinnerAta = readPubkey(data, o); o += 32;
-
-  const timerEnd = readI64(data, o); o += 8;
-  const cooldownEnd = readI64(data, o); o += 8;
-
-  const unclaimed = data[o] === 1; o += 1;
-
-  const sessionPlays = readU32(data, o); o += 4;
-
-  const enabled = data[o] === 1; o += 1;
-  const bump = data[o];
-
-  return {
-    owner, tokenMint, vault,
-    playCost, roundDurationSecs,
-    currentWinner, currentWinnerAta,
-    timerEnd, cooldownEnd,
-    unclaimed, sessionPlays, enabled, bump
-  };
+  const owner             = readPubkey(d, o); o += 32;
+  const tokenMint         = readPubkey(d, o); o += 32;
+  const vault             = readPubkey(d, o); o += 32;
+  const playCost          = readU64(d, o);    o += 8;
+  const roundDurationSecs = readI64(d, o);    o += 8;
+  const currentWinner     = readPubkey(d, o); o += 32;
+  const currentWinnerAta  = readPubkey(d, o); o += 32;
+  const timerEnd          = readI64(d, o);    o += 8;
+  const cooldownEnd       = readI64(d, o);    o += 8;
+  const unclaimed         = d[o] === 1;       o += 1;
+  const sessionPlays      = readU32(d, o);    o += 4;
+  const enabled           = d[o] === 1;       o += 1;
+  const bump              = d[o];
+  return { owner, tokenMint, vault, playCost, roundDurationSecs,
+           currentWinner, currentWinnerAta, timerEnd, cooldownEnd,
+           unclaimed, sessionPlays, enabled, bump };
 }
 
 /////////////////////////////
-// Anchor discriminators + ix builders (cached)
+// ANCHOR DISCRIMINATORS
 /////////////////////////////
-async function sha256Bytes(message) {
-  const data = new TextEncoder().encode(message);
-  const hash = await crypto.subtle.digest("SHA-256", data);
+async function sha256Bytes(msg) {
+  const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(msg));
   return new Uint8Array(hash);
 }
-async function anchorDiscriminator(ixName) {
-  const preimage = `global:${ixName}`;
-  const hash = await sha256Bytes(preimage);
-  return hash.slice(0, 8);
-}
+async function anchorDisc(name) { return (await sha256Bytes(`global:${name}`)).slice(0, 8); }
 
-let PLAY_DISC = null;
-let CLAIM_DISC = null;
+let PLAY_DISC = null, CLAIM_DISC = null;
+async function getPlayDisc()  { return PLAY_DISC  ??= await anchorDisc("play"); }
+async function getClaimDisc() { return CLAIM_DISC ??= await anchorDisc("claim"); }
 
-async function getPlayDisc() {
-  if (!PLAY_DISC) PLAY_DISC = await anchorDiscriminator("play");
-  return PLAY_DISC;
-}
-async function getClaimDisc() {
-  if (!CLAIM_DISC) CLAIM_DISC = await anchorDiscriminator("claim");
-  return CLAIM_DISC;
-}
-
-function findAta(ownerPk, mintPk2) {
+function findAta(owner, mint) {
   const [ata] = PublicKey.findProgramAddressSync(
-    [ownerPk.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mintPk2.toBuffer()],
+    [owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
     ASSOCIATED_TOKEN_PROGRAM_ID
   );
   return ata;
 }
 
 async function buildPlayIx({ playerPk, playerAtaPk, previousWinnerAtaPk }) {
-  const data = await getPlayDisc();
-
-  const keys = [
-    { pubkey: statePk, isSigner: false, isWritable: true },
-    { pubkey: vaultPk, isSigner: false, isWritable: true },
-    { pubkey: playerPk, isSigner: true, isWritable: true },
-    { pubkey: playerAtaPk, isSigner: false, isWritable: true },
-    { pubkey: previousWinnerAtaPk, isSigner: false, isWritable: true },
-    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-    { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
-  ];
-
-  return new TransactionInstruction({ programId: programIdPk, keys, data });
+  return new TransactionInstruction({
+    programId: programIdPk,
+    data: await getPlayDisc(),
+    keys: [
+      { pubkey: statePk,               isSigner: false, isWritable: true  },
+      { pubkey: vaultPk,               isSigner: false, isWritable: true  },
+      { pubkey: playerPk,              isSigner: true,  isWritable: true  },
+      { pubkey: playerAtaPk,           isSigner: false, isWritable: true  },
+      { pubkey: previousWinnerAtaPk,   isSigner: false, isWritable: true  },
+      { pubkey: TOKEN_PROGRAM_ID,      isSigner: false, isWritable: false },
+      { pubkey: SYSVAR_CLOCK_PUBKEY,   isSigner: false, isWritable: false },
+    ],
+  });
 }
 
 async function buildClaimIx({ winnerPk, winnerAtaPk }) {
-  const data = await getClaimDisc();
-
-  const keys = [
-    { pubkey: statePk, isSigner: false, isWritable: true },
-    { pubkey: vaultPk, isSigner: false, isWritable: true },
-    { pubkey: winnerPk, isSigner: true, isWritable: true },
-    { pubkey: winnerAtaPk, isSigner: false, isWritable: true },
-    { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
-    { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
-  ];
-
-  return new TransactionInstruction({ programId: programIdPk, keys, data });
+  return new TransactionInstruction({
+    programId: programIdPk,
+    data: await getClaimDisc(),
+    keys: [
+      { pubkey: statePk,             isSigner: false, isWritable: true  },
+      { pubkey: vaultPk,             isSigner: false, isWritable: true  },
+      { pubkey: winnerPk,            isSigner: true,  isWritable: true  },
+      { pubkey: winnerAtaPk,         isSigner: false, isWritable: true  },
+      { pubkey: TOKEN_PROGRAM_ID,    isSigner: false, isWritable: false },
+      { pubkey: SYSVAR_CLOCK_PUBKEY, isSigner: false, isWritable: false },
+    ],
+  });
 }
 
 /////////////////////////////
-// Phase logic
+// PHASE LOGIC
 /////////////////////////////
 function computePhase(gs, now) {
-  if (!gs?.enabled) return "DISABLED";
-  if (gs.timerEnd === 0) return "IDLE";
-  if (now <= gs.timerEnd) return "ACTIVE";
-  if (now > gs.timerEnd && now < gs.cooldownEnd) return "COOLDOWN";
-  if (gs.unclaimed) return "POST_COOLDOWN_UNCLAIMED";
+  if (!gs?.enabled)                                      return "DISABLED";
+  if (gs.timerEnd === 0)                                 return "IDLE";
+  if (now <= gs.timerEnd)                                return "ACTIVE";
+  if (now > gs.timerEnd && now < gs.cooldownEnd)         return "COOLDOWN";
+  if (gs.unclaimed)                                      return "POST_COOLDOWN_UNCLAIMED";
   return "IDLE";
 }
 
+// Plain-English, action-oriented labels
 function phaseLabel(phase) {
   switch (phase) {
-    case "DISABLED": return "Game not enabled";
-    case "IDLE": return "Waiting for a play";
-    case "ACTIVE": return "Round live — last press wins";
-    case "COOLDOWN": return "Cooldown — winner may claim";
-    case "POST_COOLDOWN_UNCLAIMED": return "Round ended — winner may claim anytime, or first press auto-pays";
-    default: return "—";
+    case "DISABLED":                return "Game is paused";
+    case "IDLE":                    return "Waiting for the first press — go ahead, start it";
+    case "ACTIVE":                  return "Round live — press last to win the pot";
+    case "COOLDOWN":                return "Round over — winner can claim their pot now";
+    case "POST_COOLDOWN_UNCLAIMED": return "Pot unclaimed — pressing again starts a new round";
+    default:                        return "—";
   }
 }
 
 /////////////////////////////
-// Winner log (this session)
+// WINNER FEED
 /////////////////////////////
 function trackWinnerChanges(gs) {
   if (!gs) return;
-  const winner58 = gs.currentWinner.toBase58();
-  const default58 = PublicKey.default.toBase58();
-  if (winner58 === default58) return;
+  const w58  = gs.currentWinner.toBase58();
+  const def  = PublicKey.default.toBase58();
+  if (w58 === def) return;
 
-  if (lastWinnerSeen === null) {
-    lastWinnerSeen = winner58;
-    pushWinnerEntry(winner58, Date.now(), true);
-    return;
-  }
-  if (winner58 === lastWinnerSeen) return;
-
-  lastWinnerSeen = winner58;
-  pushWinnerEntry(winner58, Date.now(), false);
+  if (lastWinnerSeen === null) { lastWinnerSeen = w58; pushWinnerEntry(w58, Date.now(), true); return; }
+  if (w58 === lastWinnerSeen) return;
+  lastWinnerSeen = w58;
+  pushWinnerEntry(w58, Date.now(), false);
 }
 
-function pushWinnerEntry(winner58, tsMs, isInitial) {
-  if (winnerHistory.length > 0 && winnerHistory[0].winner === winner58) return;
-
-  winnerHistory.unshift({ winner: winner58, tsMs, isInitial });
+function pushWinnerEntry(w58, tsMs, isInitial) {
+  if (winnerHistory[0]?.winner === w58) return;
+  winnerHistory.unshift({ winner: w58, tsMs, isInitial });
   if (winnerHistory.length > MAX_WINNER_LOG) winnerHistory.length = MAX_WINNER_LOG;
-
-  renderWinnerLog(); // only re-render when log data changes
+  renderWinnerLog();
 }
 
 function fmtSince(tsMs) {
-  const deltaSec = Math.max(0, Math.floor((Date.now() - tsMs) / 1000));
-  const mm = Math.floor(deltaSec / 60);
-  const ss = deltaSec % 60;
-  return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")} ago`;
+  const s = Math.max(0, Math.floor((Date.now() - tsMs) / 1000));
+  return `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")} ago`;
 }
 
 function renderWinnerLog() {
   if (!winnerLogEl) return;
-
   winnerLogEl.innerHTML = "";
-  const connected58 = walletPubkey ? walletPubkey.toBase58() : null;
+  const you = walletPubkey?.toBase58() ?? null;
+
+  if (!winnerHistory.length) {
+    const e = document.createElement("div");
+    e.className   = "feedLine";
+    e.textContent = "No plays yet this session";
+    winnerLogEl.appendChild(e);
+    return;
+  }
 
   winnerHistory.forEach((row, idx) => {
-    const div = document.createElement("div");
-    div.className = "logLine";
-
     const isTop = idx === 0;
-    const isYou = connected58 && row.winner === connected58;
+    const isYou = you && row.winner === you;
+    const div   = document.createElement("div");
+    div.className = isYou && isTop ? "feedLine winner-you-top"
+                  : isYou          ? "feedLine winner-you"
+                  :                  "feedLine";
 
-    if (isYou && isTop) {
-      div.style.border = "1px solid rgba(255, 215, 0, .55)";
-      div.style.background = "rgba(255, 215, 0, .10)";
-    } else if (isYou) {
-      div.style.border = "1px solid rgba(0, 255, 140, .40)";
-      div.style.background = "rgba(0, 255, 140, .08)";
-    }
-
-    const displayName = isYou ? "You" : shortPk(row.winner);
-    const since = fmtSince(row.tsMs);
-    const url = solscanAccountUrl(row.winner);
-
+    const badge = isTop ? `<span class="feedBadge ${isYou ? "gold" : ""}">LEADING</span>` : "";
     div.innerHTML =
-      `<strong>${isTop ? "Current winner" : ""}</strong>` +
-      `${isTop ? " " : ""}` +
-      `<span title="${escapeHtml(row.winner)}">${escapeHtml(displayName)}</span>` +
-      ` <span style="opacity:.7">(${escapeHtml(since)})</span>` +
-      ` — <a href="${url}" target="_blank" rel="noreferrer" style="text-decoration:underline;">solscan</a>`;
-
+      `${badge}` +
+      `<span title="${escapeHtml(row.winner)}" style="flex:1">${escapeHtml(isYou ? "You" : shortPk(row.winner))}</span>` +
+      `<span style="opacity:.5;font-size:10px">${escapeHtml(fmtSince(row.tsMs))}</span>` +
+      ` <a href="${solscanAccountUrl(row.winner)}" target="_blank" rel="noreferrer" style="opacity:.5;color:inherit;text-decoration:underline;font-size:10px">↗</a>`;
     winnerLogEl.appendChild(div);
   });
 }
 
 /////////////////////////////
-// Wallet (improved wallet switching)
+// WALLET
 /////////////////////////////
 function getWalletProvider() {
-  const any = window.solana;
-  if (any && any.isPhantom) return any;
-  if (any) return any;
-  return null;
+  const w = window.solana;
+  return w?.isPhantom ? w : w ?? null;
 }
 
 let walletListenersInstalled = false;
-
 function installWalletListeners(provider) {
   if (!provider || walletListenersInstalled) return;
   walletListenersInstalled = true;
 
-  provider.on?.("accountChanged", (pubkey) => {
+  provider.on?.("accountChanged", pubkey => {
+    walletPubkey     = pubkey ?? null;
+    cachedAtaOwner58 = null; cachedAtaExists = false;
+    userTokenBalance = null;
+    wasWinnerLastRender = false;
+
     if (!pubkey) {
-      walletPubkey = null;
       disconnectBtn.style.display = "none";
-      connectBtn.style.display = "inline-block";
-
-      // clear ATA cache
-      cachedAtaOwner58 = null;
-      cachedAtaExists = false;
-
-      wasWinnerLastRender = false;
-      addLog("Wallet account changed: disconnected");
-      render();
-      return;
+      connectBtn.style.display    = "inline-block";
+    } else {
+      disconnectBtn.style.display = "inline-block";
+      connectBtn.style.display    = "none";
     }
 
-    walletPubkey = pubkey;
-    disconnectBtn.style.display = "inline-block";
-    connectBtn.style.display = "none";
-
-    // reset caches for new wallet
-    cachedAtaOwner58 = null;
-    cachedAtaExists = false;
-
-    wasWinnerLastRender = false;
-    addLog(`Wallet account changed: ${walletPubkey.toBase58()}`);
-
-    renderWinnerLog(); // "You" highlight may change
+    addLog(pubkey ? `Account changed: ${pubkey.toBase58()}` : "Account changed: disconnected");
+    hideOnboardingCards();
+    renderBalanceBar();
+    renderWinnerLog();
     render();
+    refreshStateOnly("wallet-change");
+    if (pubkey) refreshUserBalance();
   });
 
   provider.on?.("disconnect", () => {
-    walletPubkey = null;
-    disconnectBtn.style.display = "none";
-    connectBtn.style.display = "inline-block";
-
-    cachedAtaOwner58 = null;
-    cachedAtaExists = false;
-
+    walletPubkey     = null;
+    cachedAtaOwner58 = null; cachedAtaExists = false;
+    userTokenBalance = null;
     wasWinnerLastRender = false;
-    addLog("Wallet disconnected (event)");
+    disconnectBtn.style.display = "none";
+    connectBtn.style.display    = "inline-block";
+    addLog("Wallet disconnected");
+    hideOnboardingCards();
+    renderBalanceBar();
     renderWinnerLog();
     render();
   });
@@ -710,87 +916,92 @@ function installWalletListeners(provider) {
 
 async function connectWallet() {
   const provider = getWalletProvider();
-  if (!provider) {
-    alert("No Solana wallet found. Install Phantom.");
-    return;
+  if (!provider) { showNoWalletCard(); return false; }
+
+  startBgMusicIfAllowed();
+
+  let resp;
+  try {
+    resp = await provider.connect({ onlyIfTrusted: false });
+  } catch (e) {
+    const msg = e?.message ?? String(e);
+    addLog(`Wallet connect failed: ${msg}`);
+    const rejected = /rejected|cancelled|cancel/i.test(msg);
+    rejected
+      ? toastInfo("Connection cancelled", "Tap Connect whenever you're ready.")
+      : toastError("Wallet connection failed", msg);
+    return false;
   }
 
-  unlockAudioOnce();
+  if (!resp?.publicKey) {
+    toastError("Wallet connection failed", "No public key returned. Please try again.");
+    return false;
+  }
 
-  const resp = await provider.connect({ onlyIfTrusted: false });
   walletPubkey = resp.publicKey;
-
   installWalletListeners(provider);
-
   addLog(`Wallet connected: ${walletPubkey.toBase58()}`);
 
   disconnectBtn.style.display = "inline-block";
-  connectBtn.style.display = "none";
+  connectBtn.style.display    = "none";
+  cachedAtaOwner58 = null; cachedAtaExists = false;
+  userTokenBalance = null;
 
-  // reset caches
-  cachedAtaOwner58 = null;
-  cachedAtaExists = false;
-
+  hideOnboardingCards();
   renderWinnerLog();
   render();
+
+  toastSuccess("Wallet connected", `${shortPk(walletPubkey.toBase58())} — ready to play.`);
+
+  refreshStateOnly("wallet-connect");
+  refreshUserBalance();
+  return true;
 }
 
 async function disconnectWallet() {
-  const provider = getWalletProvider();
-  try { await provider?.disconnect?.(); } catch {}
-
-  walletPubkey = null;
-
-  disconnectBtn.style.display = "none";
-  connectBtn.style.display = "inline-block";
-
-  cachedAtaOwner58 = null;
-  cachedAtaExists = false;
-
+  try { await getWalletProvider()?.disconnect?.(); } catch {}
+  walletPubkey     = null;
+  cachedAtaOwner58 = null; cachedAtaExists = false;
+  userTokenBalance = null;
   wasWinnerLastRender = false;
-
+  disconnectBtn.style.display = "none";
+  connectBtn.style.display    = "inline-block";
   addLog("Wallet disconnected");
+  hideOnboardingCards();
+  renderBalanceBar();
   renderWinnerLog();
   render();
 }
 
 function renderWalletPill() {
   if (walletPubkey) {
-    walletDot.classList.add("on");
-    walletText.textContent = `Connected: ${walletPubkey.toBase58().slice(0,4)}…${walletPubkey.toBase58().slice(-4)}`;
+    walletDot?.classList.add("on");
+    if (walletText) walletText.textContent = shortPk(walletPubkey.toBase58());
   } else {
-    walletDot.classList.remove("on");
-    walletText.textContent = "Not connected";
+    walletDot?.classList.remove("on");
+    if (walletText) walletText.textContent = "Not connected";
   }
 }
 
 /////////////////////////////
-// RPC gating: vault fetch
+// VAULT FETCH
 /////////////////////////////
 async function maybeRefreshVaultAmount(reason = "") {
-  const nowMs = Date.now();
-  const ttlExpired = (nowMs - lastVaultFetchMs) >= VAULT_TTL_MS;
-
-  // Primary trigger: plays changed
-  const plays = latestState ? Number(latestState.sessionPlays || 0) : null;
-  const playsChanged = (plays !== null && lastPlaysSeen !== null && plays !== lastPlaysSeen);
-
-  // If we haven't ever fetched vault, do it once.
+  const now          = Date.now();
+  const plays        = latestState ? Number(latestState.sessionPlays || 0) : null;
+  const playsChanged = plays !== null && lastPlaysSeen !== null && plays !== lastPlaysSeen;
+  const ttlExpired   = (now - lastVaultFetchMs) >= VAULT_TTL_MS;
   const neverFetched = lastVaultFetchMs === 0;
 
-  const should = neverFetched || playsChanged || ttlExpired;
-
-  if (!should) return;
+  if (!neverFetched && !playsChanged && !ttlExpired) return;
   if (vaultFetchInFlight) return;
 
   vaultFetchInFlight = true;
   try {
-    const vaultBal = await connection.getTokenAccountBalance(vaultPk, "confirmed");
-    latestVaultAmount = BigInt(vaultBal?.value?.amount || "0");
-    lastVaultFetchMs = Date.now();
-
-    // update dependent UI blocks now
-    if (vaultText) vaultText.textContent = `${fmtTokenExact(latestVaultAmount)} tokens`;
+    const bal = await connection.getTokenAccountBalance(vaultPk, "confirmed");
+    latestVaultAmount = BigInt(bal?.value?.amount || "0");
+    lastVaultFetchMs  = Date.now();
+    if (vaultText) vaultText.textContent = `${fmtTokenExact(getDisplayVault())} tokens`;
     updateThresholdPanelIfNeeded();
     renderPotIfNeeded();
   } catch (e) {
@@ -801,328 +1012,440 @@ async function maybeRefreshVaultAmount(reason = "") {
 }
 
 /////////////////////////////
-// State polling (critical)
+// STATE POLLING
 /////////////////////////////
 function stateSignature(gs) {
   if (!gs) return "";
-  // include only critical fields that indicate meaningful gameplay changes
-  return [
-    gs.enabled ? 1 : 0,
-    gs.timerEnd,
-    gs.cooldownEnd,
-    gs.unclaimed ? 1 : 0,
-    gs.sessionPlays,
-    gs.currentWinner.toBase58(),
-    // include playCost if you ever change it on-chain; safe to include
-    gs.playCost.toString(),
-  ].join("|");
+  return [gs.enabled ? 1 : 0, gs.timerEnd, gs.cooldownEnd,
+          gs.unclaimed ? 1 : 0, gs.sessionPlays,
+          gs.currentWinner.toBase58(), gs.playCost.toString()].join("|");
 }
 
 function handleWooshOnTimerReset(gs) {
-  const newTimerEnd = Number(gs?.timerEnd || 0);
-
-  if (lastTimerEndSeen === null) {
-    lastTimerEndSeen = newTimerEnd;
-    return;
+  const newEnd = Number(gs?.timerEnd || 0);
+  if (lastTimerEndSeen === null) { lastTimerEndSeen = newEnd; return; }
+  if (newEnd > lastTimerEndSeen) {
+    suppressNextWoosh ? (suppressNextWoosh = false) : playSfx(sfxWoosh);
   }
-
-  const timerReset = newTimerEnd > lastTimerEndSeen;
-  if (timerReset) {
-    if (suppressNextWoosh) {
-      suppressNextWoosh = false;
-    } else {
-      playSfx(sfxWoosh);
-    }
-  }
-  lastTimerEndSeen = newTimerEnd;
+  lastTimerEndSeen = newEnd;
 }
 
-async function refreshStateOnly() {
+async function refreshStateOnly(source = "manual") {
   if (statePollInFlight) return;
   statePollInFlight = true;
+  let hadError = false;
 
   try {
-    const stateAcc = await connection.getAccountInfo(statePk, "confirmed");
-    if (!stateAcc?.data) {
+    const prevState       = latestState;
+    const prevUnclaimed   = prevState?.unclaimed ?? null;
+    const prevWinner58    = prevState ? prevState.currentWinner.toBase58() : null;
+    const prevVaultAmount = latestVaultAmount;
+
+    const acc = await connection.getAccountInfo(statePk, "confirmed");
+    if (!acc?.data) {
       latestState = null;
-      if (phaseText) phaseText.textContent = "State not found";
+      if (phaseText) phaseText.textContent = "Could not load game state";
       mainBtn.classList.add("disabled");
       mainBtn.disabled = true;
-      mainBtn.textContent = "ERROR";
+      setLabel("ERROR");
       return;
     }
 
-    const decoded = decodeState(stateAcc.data);
-    const sig = stateSignature(decoded);
+    const decoded = decodeState(acc.data);
+    const sig     = stateSignature(decoded);
     const changed = sig !== lastStateSig;
 
     latestState = decoded;
-
-    // "plays" trigger base (used for vault gating)
     const plays = Number(decoded.sessionPlays || 0);
     if (lastPlaysSeen === null) lastPlaysSeen = plays;
 
     if (changed) {
       lastStateSig = sig;
-
-      // Critical: winner/timer/claim status updates
       handleWooshOnTimerReset(decoded);
       trackWinnerChanges(decoded);
 
-      // Winner detail
       const w = decoded.currentWinner.toBase58();
-      winnerLink.textContent = (w === PublicKey.default.toBase58()) ? "—" : w;
-      winnerLink.href = (w === PublicKey.default.toBase58()) ? "#" : solscanAccountUrl(w);
+      winnerLink.textContent = w === PublicKey.default.toBase58() ? "—" : w;
+      winnerLink.href        = w === PublicKey.default.toBase58() ? "#" : solscanAccountUrl(w);
+      unclaimedText.textContent = decoded.unclaimed ? "NO" : "YES";
+      playCostText.textContent  = `${fmtTokenExact(decoded.playCost)} tokens`;
 
-      // Correct: show YES when unclaimed == true
-      unclaimedText.textContent = decoded.unclaimed ? "YES" : "NO";
-
-      // play cost can change rarely; update when state changes
-      playCostText.textContent = `${fmtTokenExact(decoded.playCost)} tokens`;
-
-      // Trigger expensive read ONLY when plays changed (or TTL)
       const prevPlays = lastPlaysSeen;
       if (plays !== prevPlays) {
         lastPlaysSeen = plays;
-        // plays changed => likely vault changed (play or claim)
         maybeRefreshVaultAmount("plays changed");
+        if (walletPubkey) refreshUserBalance();
       } else {
-        // still allow TTL refresh
         maybeRefreshVaultAmount("ttl");
       }
 
-      // render now for immediate UI reaction
+      const now = nowSec();
+      const prevPhase = prevState ? computePhase(prevState, now) : null;
+      const currentPhase = computePhase(decoded, now);
+      const isWinnerClient = walletPubkey && decoded.currentWinner.toBase58() === walletPubkey.toBase58();
+
+      // Claim was just made: clear "next round" override and use real vault from now on
+      if (prevUnclaimed === true && decoded.unclaimed === false) {
+        potDisplayNextRoundOverride = null;
+        try {
+          const vaultBal = await connection.getTokenAccountBalance(vaultPk, "confirmed");
+          latestVaultAmount = BigInt(vaultBal?.value?.amount || "0");
+        } catch (e) {
+          console.warn("Vault refresh after claim failed", e);
+        }
+      }
+
+      // Transition into COOLDOWN (round just ended): non-winners see pot → 0 → next round pot (modified vault)
+      // Winner keeps seeing current pot until they claim
+      if (prevState && prevPhase !== "COOLDOWN" && currentPhase === "COOLDOWN" && !isWinnerClient && !potAnimActive) {
+        const currentPot = computePotFromStateAndVault(decoded, prevVaultAmount);
+        if (currentPot > 0n) {
+          const modifiedVault = prevVaultAmount - currentPot;
+          const nextRoundPot = computePotFromStateAndVault(decoded, modifiedVault);
+          const currentPotDisplay = currentPot * VAULT_DISPLAY_MULTIPLIER;
+          const nextRoundPotDisplay = nextRoundPot * VAULT_DISPLAY_MULTIPLIER;
+          if (nextRoundPotDisplay >= 0n) {
+            runPotResetAnimation(currentPotDisplay, nextRoundPotDisplay, nextRoundPotDisplay);
+          }
+        }
+      }
+
       render();
     } else {
-      // no state change; still occasionally refresh vault via TTL
-      maybeRefreshVaultAmount("ttl-only-no-state-change");
+      maybeRefreshVaultAmount("ttl");
     }
   } catch (e) {
+    hadError = true;
     console.error(e);
-    addLog(`Read error: ${e.message || e.toString()}`);
+    addLog(`Read error: ${e.message || e}`);
   } finally {
     statePollInFlight = false;
+    if (source === "poll") scheduleNextStatePoll(hadError);
   }
 }
 
+function scheduleNextStatePoll(hadError) {
+  if (statePollTimer) { clearTimeout(statePollTimer); statePollTimer = null; }
+  consecutiveStateErrors = hadError
+    ? Math.min(consecutiveStateErrors + 1, 5) : 0;
+  const delay = Math.min(
+    STATE_POLL_MS * (hadError ? (1 << consecutiveStateErrors) : 1) + Math.random() * STATE_POLL_JITTER_MS,
+    STATE_POLL_BACKOFF_MAX_MS
+  );
+  statePollTimer = setTimeout(() => refreshStateOnly("poll"), delay);
+}
+
 /////////////////////////////
-// Render (NO RPC)
+// RENDER  (no RPC)
 /////////////////////////////
-let lastPotKey = "";
+let lastPotKey      = "";
+let potAnimActive   = false;
+let potAnimFrameId  = null;
+// When set, non-winners see this "next round" pot during COOLDOWN until claim is made
+let potDisplayNextRoundOverride = null;
+
+function computePotFromStateAndVault(gs, vaultAmount) {
+  if (!gs) return 0n;
+  const divisor = potDivisorFromPlays(gs.sessionPlays);
+  return divisor > 0n ? (vaultAmount / divisor) : 0n;
+}
+
 function renderPotIfNeeded() {
   if (!latestState || !potDisplay) return;
-  const k = `${latestState.sessionPlays}|${latestVaultAmount.toString()}|${mintDecimals}`;
+  if (potAnimActive) return; // animation is controlling the pot text
+
+  const now   = nowSec();
+  const phase = computePhase(latestState, now);
+  const isWinner = walletPubkey && latestState.currentWinner.toBase58() === walletPubkey.toBase58();
+
+  // During COOLDOWN with pot unclaimed, non-winners see the "next round" pot (modified vault) until claim
+  if (potDisplayNextRoundOverride !== null && phase === "COOLDOWN" && latestState.unclaimed && !isWinner) {
+    potDisplay.textContent = fmtRounded(potDisplayNextRoundOverride);
+    return;
+  }
+
+  const k = `${latestState.sessionPlays}|${latestVaultAmount}|${mintDecimals}`;
   if (k === lastPotKey) return;
+  const wasEmpty = lastPotKey === "";
   lastPotKey = k;
 
-  const divisor = potDivisorFromPlays(latestState.sessionPlays);
-  const pot = divisor > 0 ? (latestVaultAmount / divisor) : 0n;
-  potDisplay.textContent = fmtTokenRoundedWithCommas(pot);
+  const pot  = computePotFromStateAndVault(latestState, getDisplayVault());
+  const text = fmtRounded(pot);
+
+  if (!wasEmpty && potDisplay.textContent !== text && potDisplay.textContent !== "—") {
+    potDisplay.classList.remove("pot-updated");
+    void potDisplay.offsetWidth;
+    potDisplay.classList.add("pot-updated");
+    setTimeout(() => potDisplay.classList.remove("pot-updated"), 1500);
+  }
+  potDisplay.textContent = text;
+}
+
+/**
+ * @param {bigint} prevPotBig - current pot (drains to zero)
+ * @param {bigint} nextPotBig - next round pot (fills from zero)
+ * @param {bigint} [nextPotOverride] - if set, after animation we show this value until claim (don't call renderPotIfNeeded)
+ */
+function runPotResetAnimation(prevPotBig, nextPotBig, nextPotOverride = null) {
+  if (!potDisplay) return;
+  if (potAnimFrameId) cancelAnimationFrame(potAnimFrameId);
+
+  potAnimActive = true;
+  const zeroBig = 0n;
+
+  const animateSegment = (fromBig, toBig, durationMs, done) => {
+    const fromNum = Number(fromBig);
+    const toNum   = Number(toBig);
+    const start   = performance.now();
+
+    const step = (now) => {
+      const t   = Math.min(1, (now - start) / durationMs);
+      const cur = fromNum + (toNum - fromNum) * t;
+      const approxUnits = BigInt(Math.max(0, Math.round(cur)));
+      potDisplay.textContent = fmtRounded(approxUnits);
+      if (t < 1) {
+        potAnimFrameId = requestAnimationFrame(step);
+      } else if (done) {
+        done();
+      }
+    };
+
+    potAnimFrameId = requestAnimationFrame(step);
+  };
+
+  animateSegment(prevPotBig, zeroBig, 600, () => {
+    setTimeout(() => {
+      animateSegment(zeroBig, nextPotBig, 900, () => {
+        potAnimActive = false;
+        if (nextPotOverride !== null) {
+          potDisplayNextRoundOverride = nextPotOverride;
+          potDisplay.textContent = fmtRounded(nextPotOverride);
+        } else {
+          renderPotIfNeeded();
+        }
+      });
+    }, 200);
+  });
+}
+
+const URGENT_SECS = 10;
+
+function setLabel(text) {
+  if (btnLabelEl) btnLabelEl.textContent = text;
+  else if (mainBtn) mainBtn.textContent = text;
 }
 
 function render() {
+  if (btnPendingActive) return; // don't clobber tx-in-flight UI
+
   renderWalletPill();
+  renderBalanceBar();
   if (!latestState) return;
 
-  const now = nowSec();
+  const now   = nowSec();
   const phase = computePhase(latestState, now);
 
   renderPotIfNeeded();
   updateThresholdPanelIfNeeded();
   if (phaseText) phaseText.textContent = phaseLabel(phase);
 
-  // Winner song control placeholder: keep the logic variable, but don't RPC
-  const winnerPk58 = latestState.currentWinner.toBase58();
-  const isWinnerConnected = !!walletPubkey && walletPubkey.toBase58() === winnerPk58;
+  const winner58          = latestState.currentWinner.toBase58();
+  const isWinnerConnected = !!walletPubkey && walletPubkey.toBase58() === winner58;
 
-  // CLOCK + BAR (smooth UI)
-  let secondsLeft = 0;
-  let pct = 0;
+  // Leading share card: show only while we're the leader in an active round
+  updateShareCard(isWinnerConnected && phase === "ACTIVE");
 
+  // Claim share card: hide once a new round goes ACTIVE (someone pressed after our claim)
+  if (claimShareCardVisible && phase === "ACTIVE") {
+    hideClaimShareCard();
+  }
+
+  // ── CLOCK + PROGRESS BAR ──────────────────────────────
+  let secondsLeft = 0, pct = 0;
   if (phase === "ACTIVE") {
     secondsLeft = latestState.timerEnd - now;
-    if (clockLabel) clockLabel.textContent = "TIME";
-    const duration = Math.max(1, latestState.roundDurationSecs || 1);
-    const elapsed = duration - secondsLeft;
-    pct = Math.max(0, Math.min(1, elapsed / duration));
+    if (clockLabel) clockLabel.textContent = "Time Remaining";
+    const dur = Math.max(1, latestState.roundDurationSecs || 1);
+    pct = Math.max(0, Math.min(1, (dur - secondsLeft) / dur));
   } else if (phase === "COOLDOWN") {
     secondsLeft = latestState.cooldownEnd - now;
-    if (clockLabel) clockLabel.textContent = "COOLDOWN";
+    if (clockLabel) clockLabel.textContent = "Cooldown";
     const total = Math.max(1, (latestState.cooldownEnd - latestState.timerEnd) || 1);
-    const elapsed = total - secondsLeft;
-    pct = Math.max(0, Math.min(1, elapsed / total));
+    pct = Math.max(0, Math.min(1, (total - secondsLeft) / total));
   } else if (phase === "POST_COOLDOWN_UNCLAIMED") {
-    if (clockLabel) clockLabel.textContent = "READY";
-    secondsLeft = 60;
-    pct = 1;
+    if (clockLabel) clockLabel.textContent = "Waiting";
+    secondsLeft = 0; pct = 1;
   } else {
-    if (clockLabel) clockLabel.textContent = "TIME";
-    secondsLeft = 60;
-    pct = 0;
+    if (clockLabel) clockLabel.textContent = "Waiting";
+    secondsLeft = 0; pct = 0;
   }
 
   if (clockDisplay) clockDisplay.textContent = fmtClock(secondsLeft);
   if (barFill) barFill.style.width = `${pct * 100}%`;
 
-  // MAIN BUTTON LOGIC
-  const connected = !!walletPubkey;
-  const timerEnded = latestState.timerEnd > 0 && now > latestState.timerEnd;
-  const shouldShowClaim = connected && isWinnerConnected && latestState.unclaimed && latestState.enabled && timerEnded;
+  // ── URGENCY ───────────────────────────────────────────
+  const isUrgent = phase === "ACTIVE" && secondsLeft > 0 && secondsLeft <= URGENT_SECS;
+  clockDisplay?.classList.toggle("urgent", isUrgent);
+  barFill?.classList.toggle("urgent", isUrgent);
 
-  claimArmed = shouldShowClaim;
-  mainMode = shouldShowClaim ? "CLAIM" : "PLAY";
-
-  if (mainMode === "CLAIM") {
-    mainBtn.textContent = "CLAIM";
-    mainBtn.classList.remove("disabled", "claimLocked");
-    mainBtn.classList.add("claimArmed");
-    mainBtn.disabled = false;
-    // if (mainHint) mainHint.textContent = "Your win is unclaimed. Claim anytime.";
-    return;
+  // ── TIMER HINT ────────────────────────────────────────
+  if (timerHint) {
+    timerHint.classList.toggle("hidden-hint", phase !== "ACTIVE" && phase !== "IDLE");
   }
 
-  mainBtn.classList.remove("claimLocked", "claimArmed");
+  // ── BUTTON STATE ──────────────────────────────────────
+  const connected  = !!walletPubkey;
+  const timerEnded = latestState.timerEnd > 0 && now > latestState.timerEnd;
+  const canClaim   = connected && isWinnerConnected && latestState.unclaimed
+                  && latestState.enabled && timerEnded;
+
+  claimArmed = canClaim;
+  mainMode   = canClaim ? "CLAIM" : "PLAY";
+
+  mainBtn.classList.remove("disabled", "claimLocked", "claimArmed", "urgent", "cooldown");
+  btnGlowRing?.classList.remove("active", "urgent", "claim-glow");
+
+  if (mainMode === "CLAIM") {
+    setLabel("CLAIM");
+    mainBtn.disabled = false;
+    mainBtn.classList.add("claimArmed");
+    btnGlowRing?.classList.add("claim-glow");
+    return;
+  }
 
   const canPlay = connected && latestState.enabled &&
     (phase === "ACTIVE" || phase === "IDLE" || phase === "POST_COOLDOWN_UNCLAIMED");
 
   if (canPlay) {
-    mainBtn.textContent = "PLAY";
+    setLabel("PLAY");
     mainBtn.disabled = false;
-    mainBtn.classList.remove("disabled");
-
-    if (phase === "POST_COOLDOWN_UNCLAIMED") {
-      // if (mainHint) mainHint.textContent = "First press after cooldown auto-pays previous winner, then starts the next round.";
-    } else {
-      // if (mainHint) mainHint.textContent = "Each Button press is 1000 $BUTTON.";
+    if (isUrgent) {
+      mainBtn.classList.add("urgent");
+      btnGlowRing?.classList.add("urgent");
+    } else if (phase === "ACTIVE") {
+      btnGlowRing?.classList.add("active");
     }
+  } else if (!connected) {
+    setLabel("CONNECT");
+    mainBtn.disabled = false;
+  } else if (phase === "COOLDOWN") {
+    setLabel("COOLDOWN");
+    mainBtn.disabled = true;
+    mainBtn.classList.add("cooldown");
   } else {
-    if (!connected) {
-      mainBtn.textContent = "CONNECT";
-      mainBtn.disabled = false;
-      mainBtn.classList.remove("disabled");
-      // if (mainHint) mainHint.textContent = "Connect to press. Viewing is available without connecting.";
-    } else {
-      mainBtn.textContent = phase === "COOLDOWN" ? "COOLDOWN" : "WAIT";
-      mainBtn.disabled = true;
-      mainBtn.classList.add("disabled");
-
-      if (phase === "COOLDOWN") {
-        // if (mainHint) mainHint.textContent = "Cooldown active. Winner may claim (if unclaimed).";
-      } else if (!latestState.enabled) {
-        // if (mainHint) mainHint.textContent = "Game is not enabled.";
-      } else {
-        // if (mainHint) mainHint.textContent = "Waiting for the next round to start.";
-      }
-    }
+    setLabel("WAIT");
+    mainBtn.disabled = true;
+    mainBtn.classList.add("disabled");
   }
 }
 
 /////////////////////////////
-// Send transaction helper
-/////////////////////////////
-async function sendTx(ix) {
-  const provider = getWalletProvider();
-  if (!provider?.publicKey) throw new Error("Wallet not connected");
-
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
-
-  const tx = new Transaction({ recentBlockhash: blockhash, feePayer: provider.publicKey });
-  tx.add(ix);
-
-  const signed = await provider.signTransaction(tx);
-
-  const sig = await connection.sendRawTransaction(signed.serialize(), {
-    skipPreflight: false,
-    preflightCommitment: "confirmed",
-  });
-  addLog("Sent tx", solscanTxUrl(sig));
-
-  await connection.confirmTransaction(
-    { signature: sig, blockhash, lastValidBlockHeight },
-    "confirmed"
-  );
-
-  addLog("Confirmed", solscanTxUrl(sig));
-  return sig;
-}
-
-// Quick post-tx sync: poll state a few times fast so UI snaps immediately
-async function fastStateSyncBurst() {
-  for (let i = 0; i < FAST_SYNC_TRIES; i++) {
-    await refreshStateOnly();
-    // if state changed, refreshStateOnly already updated UI
-    await new Promise((r) => setTimeout(r, FAST_SYNC_MS));
-  }
-}
-
-/////////////////////////////
-// Main button action
+// ATA CHECK
 /////////////////////////////
 async function ensureAtaExistsForWallet() {
   if (!walletPubkey) return false;
   const owner58 = walletPubkey.toBase58();
-
   if (cachedAtaOwner58 === owner58 && cachedAtaExists) return true;
-
-  const playerAta = findAta(walletPubkey, mintPk);
-  const ataInfo = await connection.getAccountInfo(playerAta, "confirmed");
-
+  const info = await connection.getAccountInfo(findAta(walletPubkey, mintPk), "confirmed");
   cachedAtaOwner58 = owner58;
-  cachedAtaExists = !!ataInfo;
-
+  cachedAtaExists  = !!info;
   return cachedAtaExists;
 }
 
+/////////////////////////////
+// MAIN BUTTON ACTION
+/////////////////////////////
 async function onMain() {
   if (!latestState) return;
 
+  // No wallet → connect first, then retry
   if (!walletPubkey) {
-    await connectWallet();
-    return;
+    if (!getWalletProvider()) { showNoWalletCard(); return; }
+    const ok = await connectWallet();
+    if (!ok || !walletPubkey) return;
+    return onMain();
   }
 
-  const now = nowSec();
-  const winnerPk58 = latestState.currentWinner.toBase58();
-  const isWinnerConnected = walletPubkey && walletPubkey.toBase58() === winnerPk58;
-
-  // CLAIM path
+  const now        = nowSec();
+  const isWinner   = walletPubkey.toBase58() === latestState.currentWinner.toBase58();
   const timerEnded = latestState.timerEnd > 0 && now > latestState.timerEnd;
-  if (isWinnerConnected && latestState.unclaimed && latestState.enabled && timerEnded) {
-    const winnerAta = latestState.currentWinnerAta;
-    const ix = await buildClaimIx({ winnerPk: walletPubkey, winnerAtaPk: winnerAta });
+
+  // ── CLAIM ──────────────────────────────────────────────
+  if (isWinner && latestState.unclaimed && latestState.enabled && timerEnded) {
+    const ix = await buildClaimIx({
+      winnerPk:    walletPubkey,
+      winnerAtaPk: latestState.currentWinnerAta,
+    });
+
+    // Snapshot the pot amount NOW — before fastStateSyncBurst updates
+    // latestVaultAmount to the post-claim value.
+    const divisorAtClaim   = potDivisorFromPlays(latestState.sessionPlays);
+    const potAtClaim       = divisorAtClaim > 0n ? (latestVaultAmount / divisorAtClaim) : 0n;
+    const claimedAmountFmt = fmtRounded(potAtClaim * VAULT_DISPLAY_MULTIPLIER);
+
+    const pending = showToast({
+      type: "info", title: "Approve in your wallet",
+      message: "Check your wallet extension to sign the claim.", duration: 90_000,
+    });
 
     try {
-      mainBtn.disabled = true;
-      addLog("Claim: signing…");
-      await sendTx(ix);
+      await sendTx(ix, step => {
+        if (step === "signing")    { setBtnPending(true, "SIGNING…");    addLog("Claim: signing…"); }
+        if (step === "sending")    { setBtnPending(true, "CLAIMING…");   }
+        if (step === "confirming") { setBtnPending(true, "CONFIRMING…"); }
+      });
+
+      // Tx is fully confirmed at this point — clear the
+      // pending state and play the same pot reset animation
+      // the rest of the network saw, using the predicted
+      // post-claim vault (vault - potAtClaim).
+      setBtnPending(false);
+
+      const nextVaultAfterClaim = latestVaultAmount - potAtClaim;
+      const nextPotAfterClaim   =
+        divisorAtClaim > 0n ? (nextVaultAfterClaim / divisorAtClaim) : 0n;
+      potDisplayNextRoundOverride = null; // winner just claimed; use real vault from here
+      if (potAtClaim > 0n && nextPotAfterClaim >= 0n && !potAnimActive) {
+        const displayPrev = potAtClaim * VAULT_DISPLAY_MULTIPLIER;
+        const displayNext = nextPotAfterClaim * VAULT_DISPLAY_MULTIPLIER;
+        latestVaultAmount = nextVaultAfterClaim; // so when animation ends, renderPotIfNeeded shows next round pot
+        runPotResetAnimation(displayPrev, displayNext);
+      }
+
+      pending._dismiss();
+      toastSuccess("Claimed! 🎉", `${claimedAmountFmt} $BUTTON sent to your wallet.`);
       addLog("Claim complete");
 
-      // state + vault likely changed; plays trigger will fetch vault
+      // Show the post-claim share card with the exact amount won
+      showClaimShareCard(claimedAmountFmt);
+
       await fastStateSyncBurst();
+      refreshUserBalance();
     } catch (e) {
-      console.error(e);
-      addLog(`Claim failed: ${e.message || e.toString()}`);
-      alert(`Claim failed: ${e.message || e.toString()}`);
+      // Any failure should immediately give control of the button
+      // back to render() before we surface error toasts.
+      setBtnPending(false);
+
+      pending._dismiss();
+      const msg = e?.message ?? String(e);
+      addLog(`Claim failed: ${msg}`);
+      /rejected|cancel/i.test(msg)
+        ? toastInfo("Claim cancelled", "You still hold the winning position — try again any time.")
+        : toastError("Claim failed", msg);
       await refreshStateOnly();
-    } finally {
-      mainBtn.disabled = false;
     }
     return;
   }
 
-  // PLAY path
+  // ── PLAY ───────────────────────────────────────────────
+  // ATA check before any loading UI (avoids flashing spinner for a local cache hit)
   const ataOk = await ensureAtaExistsForWallet();
-  if (!ataOk) {
-    alert("Your ATA for this mint does not exist. Receive tokens first (or create the ATA).");
-    return;
-  }
+  if (!ataOk) { showNoAtaCard(); return; }
 
   const playerAta = findAta(walletPubkey, mintPk);
-
-  const DEFAULT_PUBKEY = "11111111111111111111111111111111";
-  let prevWinnerAta = latestState.currentWinnerAta;
-  if (prevWinnerAta.toBase58() === DEFAULT_PUBKEY) prevWinnerAta = playerAta;
+  const DEFAULT_PK = "11111111111111111111111111111111";
+  const prevWinnerAta = latestState.currentWinnerAta.toBase58() === DEFAULT_PK
+    ? playerAta : latestState.currentWinnerAta;
 
   const ix = await buildPlayIx({
     playerPk: walletPubkey,
@@ -1130,125 +1453,252 @@ async function onMain() {
     previousWinnerAtaPk: prevWinnerAta,
   });
 
+  const pending = showToast({
+    type: "info", title: "Approve in your wallet",
+    message: "Check your wallet extension to sign the play.", duration: 90_000,
+  });
+
   try {
-    mainBtn.disabled = true;
-    addLog("Play: signing…");
+    await sendTx(ix, step => {
+      if (step === "signing") {
+        // Set suppress flag here — only after user has committed to signing.
+        // If they cancel before this point, the flag never gets set.
+        suppressNextWoosh = true;
+        setBtnPending(true, "SIGNING…");
+        addLog("Play: signing…");
+      }
+      if (step === "sending")    { setBtnPending(true, "SENDING…");    }
+      if (step === "confirming") { setBtnPending(true, "CONFIRMING…"); }
+    });
 
-    // You pressed the button; we expect timerEnd to jump => suppress woosh once.
-    suppressNextWoosh = true;
+    // Tx is fully confirmed here; clear the pending state so
+    // the button label snaps back in sync with the new round
+    // before we show success toasts/animations.
+    setBtnPending(false);
 
-    await sendTx(ix);
-
-    // playSfx(sfxPlayComplete);
+    pending._dismiss();
+    toastSuccess("Button pressed! ✅", "You're leading. Hold tight — don't let the clock run out.");
     addLog("Play complete");
-
-    // State must update quickly; plays will trigger vault refresh
     await fastStateSyncBurst();
+    refreshUserBalance();
   } catch (e) {
-    console.error(e);
-    addLog(`Play failed: ${e.message || e.toString()}`);
-    alert(`Play failed: ${e.message || e.toString()}`);
+    // Clear suppress flag on any failure so the next legitimate press
+    // from another player correctly plays the woosh sound.
+    suppressNextWoosh = false;
+
+    pending._dismiss();
+    const msg = e?.message ?? String(e);
+    addLog(`Play failed: ${msg}`);
+
+    if (/rejected|cancel/i.test(msg)) {
+      toastInfo("Transaction cancelled", "No tokens spent — press the button again when ready.");
+    } else if (/insufficient|balance/i.test(msg)) {
+      const cost = latestState ? fmtRounded(latestState.playCost) : "1,000";
+      toastError("Not enough tokens", `You need ${cost} $BUTTON to play. Get some at pump.fun`);
+    } else {
+      toastError("Transaction failed", msg);
+    }
+
+    // On error, also immediately hand control of the button back
+    // before we refresh state so the UI doesn't feel stuck on
+    // a stale CONFIRMING… label.
+    setBtnPending(false);
     await refreshStateOnly();
-  } finally {
-    mainBtn.disabled = false;
   }
 }
 
 /////////////////////////////
-// Details toggle
+// SIDEBAR (open/close)
 /////////////////////////////
-toggleDetailsBtn.addEventListener("click", () => {
-  detailsPanel.classList.toggle("hidden");
-  toggleDetailsBtn.textContent = detailsPanel.classList.contains("hidden") ? "Details" : "Hide";
+function openSidebar() {
+  sidebar?.classList.add("open");
+  sidebarCloseBtn?.focus();
+}
+function closeSidebar() {
+  sidebar?.classList.remove("open");
+}
+
+sidebarToggleBtn?.addEventListener("click", () => {
+  if (sidebar?.classList.contains("open")) closeSidebar();
+  else openSidebar();
+});
+sidebarCloseBtn?.addEventListener("click", closeSidebar);
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && sidebar?.classList.contains("open")) closeSidebar();
 });
 
 /////////////////////////////
-// INIT
+// DETAILS TOGGLE (inside sidebar)
 /////////////////////////////
-connectBtn.addEventListener("click", connectWallet);
-disconnectBtn.addEventListener("click", disconnectWallet);
+toggleDetailsBtn?.addEventListener("click", () => {
+  detailsPanel.classList.toggle("hidden");
+  const arrow = el("toggleArrow");
+  arrow?.classList.toggle("open", !detailsPanel.classList.contains("hidden"));
+});
 
-// Sounds on press/release (deduped)
+/////////////////////////////
+// BUTTON EVENTS
+/////////////////////////////
+connectBtn?.addEventListener("click",    connectWallet);
+disconnectBtn?.addEventListener("click", disconnectWallet);
+
 let isPressing = false;
 
-mainBtn.addEventListener("pointerdown", (e) => {
-  unlockAudioOnce();
-
+mainBtn.addEventListener("pointerdown", e => {
+  if (mainBtn.disabled) return;
   isPressing = true;
   try { mainBtn.setPointerCapture(e.pointerId); } catch {}
-
   playSfx(sfxDown);
+
+  const { left, top, width, height } = mainBtn.getBoundingClientRect();
+  const color = mainBtn.classList.contains("claimArmed") ? "#F9AB00"
+              : mainBtn.classList.contains("urgent")     ? "#E8392C" : "#1E8E3E";
+  spawnParticles(left + width / 2, top + height / 2, color);
 });
 
-function handleReleaseOnce(e) {
+function onRelease(e) {
   if (!isPressing) return;
   isPressing = false;
-
-  if (e && typeof e.pointerId === "number") {
-    try { mainBtn.releasePointerCapture(e.pointerId); } catch {}
-  }
-
-  unlockAudioOnce();
+  if (typeof e?.pointerId === "number") try { mainBtn.releasePointerCapture(e.pointerId); } catch {}
   playSfx(sfxUp);
 }
 
-mainBtn.addEventListener("pointerup", handleReleaseOnce);
-mainBtn.addEventListener("pointercancel", handleReleaseOnce);
-mainBtn.addEventListener("lostpointercapture", handleReleaseOnce);
+mainBtn.addEventListener("pointerup",          onRelease);
+mainBtn.addEventListener("pointercancel",       onRelease);
+mainBtn.addEventListener("lostpointercapture",  onRelease);
+mainBtn.addEventListener("click",               onMain);
 
-mainBtn.addEventListener("click", onMain);
+/////////////////////////////
+// RELAY / SSE
+/////////////////////////////
+let relayEventSource = null;
 
+function applyRelayState(payload) {
+  if (payload.type === "error") { console.warn("[Relay]", payload.message); return; }
+  if (payload.type !== "state") return;
+
+  const gs      = payload.state;
+  const decoded = {
+    owner:             new PublicKey(gs.owner),
+    tokenMint:         new PublicKey(gs.tokenMint),
+    vault:             new PublicKey(gs.vault),
+    playCost:          BigInt(gs.playCost),
+    roundDurationSecs: gs.roundDurationSecs,
+    currentWinner:     new PublicKey(gs.currentWinner),
+    currentWinnerAta:  new PublicKey(gs.currentWinnerAta),
+    timerEnd:          gs.timerEnd,
+    cooldownEnd:       gs.cooldownEnd,
+    unclaimed:         gs.unclaimed,
+    sessionPlays:      gs.sessionPlays,
+    enabled:           gs.enabled,
+    bump:              gs.bump,
+  };
+
+  const sig     = stateSignature(decoded);
+  const changed = sig !== lastStateSig;
+  latestState = decoded;
+
+  const plays = decoded.sessionPlays;
+  if (lastPlaysSeen === null) lastPlaysSeen = plays;
+
+  if (changed) {
+    lastStateSig = sig;
+    handleWooshOnTimerReset(decoded);
+    trackWinnerChanges(decoded);
+
+    const w = decoded.currentWinner.toBase58();
+    winnerLink.textContent = w === PublicKey.default.toBase58() ? "—" : w;
+    winnerLink.href        = w === PublicKey.default.toBase58() ? "#" : solscanAccountUrl(w);
+    unclaimedText.textContent = decoded.unclaimed ? "NO" : "YES";
+    playCostText.textContent  = `${fmtTokenExact(decoded.playCost)} tokens`;
+
+    const prevPlays = lastPlaysSeen;
+    if (Number(plays) !== Number(prevPlays) && walletPubkey) refreshUserBalance();
+
+    render();
+  }
+
+  if (payload.vaultAmount != null) {
+    const nv = BigInt(payload.vaultAmount);
+    if (nv !== latestVaultAmount) {
+      latestVaultAmount = nv;
+      lastVaultFetchMs  = Date.now();
+      lastPlaysSeen     = plays;
+      if (vaultText) vaultText.textContent = `${fmtTokenExact(getDisplayVault())} tokens`;
+      updateThresholdPanelIfNeeded();
+      renderPotIfNeeded();
+    }
+  }
+}
+
+function connectRelay() {
+  try { relayEventSource?.close(); } catch {}
+  const es = new EventSource(RELAY_URL.replace(/\/$/, "") + "/events");
+  relayEventSource = es;
+
+  const dot = () => relayStatusEl?.querySelector(".relay-dot");
+  es.onopen    = () => dot()?.classList.add("live");
+  es.onerror   = () => dot()?.classList.remove("live");
+  es.onmessage = e => {
+    try { applyRelayState(JSON.parse(e.data)); } catch (err) { console.warn("[Relay] bad msg", err); }
+  };
+}
+
+/////////////////////////////
+// BOOT
+/////////////////////////////
 (async function boot() {
   connection = new Connection(rpcUrl(), "confirmed");
 
-  // One-time details links (no repetitive DOM updates)
-  programLink.textContent = programIdPk.toBase58();
-  programLink.href = solscanAccountUrl(programIdPk.toBase58());
-  stateLink.textContent = statePk.toBase58();
-  stateLink.href = solscanAccountUrl(statePk.toBase58());
-  vaultLink.textContent = vaultPk.toBase58();
-  vaultLink.href = solscanAccountUrl(vaultPk.toBase58());
-  mintLink.textContent = mintPk.toBase58();
-  mintLink.href = solscanAccountUrl(mintPk.toBase58());
+  if (!RELAY_URL && relayStatusEl) relayStatusEl.style.display = "none";
 
-  // Wallet listeners (for swapping accounts)
+  // One-time static links
+  programLink.textContent = programIdPk.toBase58();
+  programLink.href        = solscanAccountUrl(programIdPk.toBase58());
+  stateLink.textContent   = statePk.toBase58();
+  stateLink.href          = solscanAccountUrl(statePk.toBase58());
+  vaultLink.textContent   = vaultPk.toBase58();
+  vaultLink.href          = solscanAccountUrl(vaultPk.toBase58());
+  mintLink.textContent    = mintPk.toBase58();
+  mintLink.href           = solscanAccountUrl(mintPk.toBase58());
+
   const provider = getWalletProvider();
   if (provider) installWalletListeners(provider);
 
-  // Try trusted connect
+  // Auto-reconnect if previously trusted
   if (provider?.isPhantom) {
     try {
-      const resp = await provider.connect({ onlyIfTrusted: true });
-      if (resp?.publicKey) {
-        walletPubkey = resp.publicKey;
+      const r = await provider.connect({ onlyIfTrusted: true });
+      if (r?.publicKey) {
+        walletPubkey = r.publicKey;
         disconnectBtn.style.display = "inline-block";
-        connectBtn.style.display = "none";
-        addLog(`Wallet auto-connected: ${walletPubkey.toBase58()}`);
-
-        cachedAtaOwner58 = null;
-        cachedAtaExists = false;
-
+        connectBtn.style.display    = "none";
+        cachedAtaOwner58 = null; cachedAtaExists = false;
         wasWinnerLastRender = false;
+        addLog(`Auto-connected: ${walletPubkey.toBase58()}`);
       }
     } catch {}
   }
 
   await ensureMintDecimals();
+  if (!musicMuted) startBgMusicIfAllowed();
 
-  // Initial state read (critical)
-  await refreshStateOnly();
+  if (RELAY_URL) {
+    try {
+      const snap = await fetch(RELAY_URL.replace(/\/$/, "") + "/state");
+      if (snap.ok) applyRelayState(await snap.json());
+    } catch (e) { console.warn("[Relay] snapshot failed:", e.message); }
 
-  // Initial vault fetch once so pot UI isn't empty (then plays trigger)
-  await maybeRefreshVaultAmount("boot");
+    connectRelay();
+    setInterval(render, UI_TICK_MS);
+  } else {
+    await refreshStateOnly("boot");
+    await maybeRefreshVaultAmount("boot");
+    scheduleNextStatePoll(false);
+    setInterval(render, UI_TICK_MS);
+  }
 
-  // Apply saved mute state and try to start music if allowed
-  ensureBgMusicState();
-
-  // Poll critical state only
-  setInterval(refreshStateOnly, STATE_POLL_MS);
-
-  // Smooth UI tick (no RPC)
-  setInterval(render, UI_TICK_MS);
-
+  if (walletPubkey) refreshUserBalance();
   mainBtn.disabled = false;
 })();

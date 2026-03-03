@@ -3,169 +3,284 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Button Game</title>
+  <title>$BUTTON — Last Press Wins</title>
+  <meta name="description" content="On-chain last-press-wins game on Solana. Press the button. Be the last. Win the pot." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;500;600;700;800;900&family=DM+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+
   <link rel="stylesheet" href="styles.css" />
   <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
 </head>
 <body>
+
+  <div class="bg-grid" aria-hidden="true"></div>
+  <div class="scanlines" aria-hidden="true"></div>
+
+  <!-- TOAST CONTAINER -->
+  <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="false"></div>
+
   <div class="console">
+
     <header class="topbar">
-      <div class="title">BUTTON GAME</div>
+      <div class="brand">
+        <div class="brand-icon" aria-hidden="true">
+          <span></span><span></span>
+          <span></span><span></span>
+        </div>
+        <span class="brand-name" aria-label="$BUTTON">
+          <span class="c1">$</span><span class="c2">B</span><span class="c3">U</span><span class="c4">T</span><span class="c5">T</span><span class="c6">O</span><span class="c7">N</span>
+        </span>
+      </div>
 
       <div class="walletArea">
+        <button id="sidebarToggleBtn" class="chip ghost" type="button" aria-label="Open info and details" title="Pot unlocks & on-chain details">
+          Info
+        </button>
+        <div id="relayStatus" class="relay-pill" title="Relay connection status">
+          <span class="relay-dot"></span>
+          <span class="relay-label">Live</span>
+        </div>
         <div id="walletStatus" class="walletPill">
           <span id="walletDot" class="dot"></span>
           <span id="walletText">Not connected</span>
         </div>
         <button id="connectBtn" class="chip">Connect</button>
-        <button id="disconnectBtn" class="chip ghost" style="display:none;">Disconnect</button>
+        <button id="disconnectBtn" class="chip ghost" style="display:none">Disconnect</button>
       </div>
     </header>
 
+    <div class="mainWithSidebar">
     <main class="centerStack">
+
       <!-- POT -->
       <div class="potBlock">
-        <div class="potLabel">POT</div>
-        <div id="potDisplay" class="potValue">—</div>
-        <div class="potCurrency">$BUTTON</div>
+        <div class="potLabel">Current Pot</div>
+        <div class="potValueWrap">
+          <div id="potDisplay" class="potValue">—</div>
+          <div class="potCurrency">$BUTTON</div>
+        </div>
         <div class="potSub" id="phaseText">Loading…</div>
       </div>
 
       <!-- BUTTON -->
-      <button id="mainBtn" class="playBtn disabled" disabled>LOADING</button>
-      <!-- <div id="mainHint" class="hint">Reading on-chain data…</div> -->
-<div class="hint">
-        Last player to press the button wins the pot.<br>
-        Each button press resets the timer to 60 seconds.<br>
-        1000 $BUTTON to press the button.
-        </div>      <!-- TIMER BAR + CLOCK -->
-      <div class="timerWrap">
+      <div class="btnStage">
+        <div class="btn-glow-ring" id="btnGlowRing" aria-hidden="true"></div>
+        <button id="mainBtn" class="playBtn disabled" disabled aria-label="Press to play">
+          <span class="btn-spinner hidden" id="btnSpinner" aria-hidden="true"></span>
+          <span class="btn-label" id="btnLabelEl">LOADING</span>
+        </button>
+      </div>
+
+      <!-- BALANCE BAR — shown after wallet connect -->
+      <div id="balanceBar" class="balance-bar hidden">
+        <span class="balance-label">Your balance</span>
+        <span id="balanceAmount" class="balance-amount">—</span>
+        <span class="balance-unit">$BUTTON</span>
+        <span id="balanceWarning" class="balance-warning hidden">⚠ Not enough to play</span>
+      </div>
+
+      <!-- NO-WALLET ONBOARDING — shown when window.solana is absent -->
+      <div id="noWalletCard" class="onboarding-card hidden">
+        <div class="onboarding-icon">👻</div>
+        <div class="onboarding-body">
+          <div class="onboarding-title">You need a Solana wallet to play</div>
+          <div class="onboarding-text">
+            $BUTTON lives on Solana. Install <a href="https://phantom.app" target="_blank" rel="noreferrer" class="onboarding-link">Phantom</a> — it's free and takes about two minutes. Then refresh this page and hit Connect.
+          </div>
+          <a href="https://phantom.app" target="_blank" rel="noreferrer" class="onboarding-cta">Get Phantom →</a>
+        </div>
+      </div>
+
+      <!-- NO-ATA ONBOARDING — shown when wallet connected but no token account -->
+      <div id="noAtaCard" class="onboarding-card hidden">
+        <div class="onboarding-icon">🪙</div>
+        <div class="onboarding-body">
+          <div class="onboarding-title">You need $BUTTON tokens to play</div>
+          <div class="onboarding-text">
+            Each press costs <strong id="ataPlayCost">1,000 $BUTTON</strong>. Your wallet doesn't hold any yet — pick some up on pump.fun.
+          </div>
+          <a id="ataMintLink" href="#" target="_blank" rel="noreferrer" class="onboarding-cta">Buy $BUTTON on pump.fun →</a>
+        </div>
+      </div>
+
+      <!-- RULES -->
+      <div class="rules">
+        <span class="rule-item">
+          <span class="rule-dot" style="background:var(--g-blue)"></span>
+          Last press wins the pot
+        </span>
+        <span class="rule-sep">·</span>
+        <span class="rule-item">
+          <span class="rule-dot" style="background:var(--g-yellow)"></span>
+          Each press resets the clock
+        </span>
+        <span class="rule-sep">·</span>
+        <span class="rule-item">
+          <span class="rule-dot" style="background:var(--g-green)"></span>
+          1,000 $BUTTON per press
+        </span>
+      </div>
+
+      <!-- TIMER -->
+      <div class="timerBlock">
         <div class="bar" aria-label="Timer bar">
           <div id="barFill" class="fill"></div>
         </div>
-        <div class="clockWrap">
-          <div class="clockLabel" id="clockLabel">TIME</div>
-          <div class="clock" id="clockDisplay">00:00</div>
+        <div class="clockRow">
+          <span class="clockLabel" id="clockLabel">Time Remaining</span>
+          <span class="clock" id="clockDisplay">00:00</span>
+        </div>
+        <div class="timer-hint" id="timerHint">
+          Press the button before this hits zero to take the lead
         </div>
       </div>
-      <div id="winnerNow" class="log"></div>
-      <!-- NEW: Right-side thresholds / progress panel -->
-      <section id="thresholdPanel" class="thresholdPanel" aria-label="Pot unlock thresholds">
-        <div class="tpHeader">
-          <div class="tpTitle">Pot Unlocks</div>
-        </div>
 
-        <div class="tpBigRow">
-          <div class="tpBigLabel">Vault Balance</div>
-          <div class="tpBigValue" id="tpVaultBalance">—</div>
-        </div>
-        <div class="tpBigRow">
-          <div class="tpBigLabel">Current Tier</div>
-          <div class="tpBigValue" id="tpProjectedPot">—</div>
-        </div>
-
-        <div class="tpMiniRow">
-          <div>Plays: <strong id="tpPlays">—</strong></div>
-          <div>Current divisor: <strong id="tpDivisor">—</strong></div>
-        </div>
-
-        <div class="tpBarWrap">
-          <div class="tpBar">
-            <div class="tpBarFill" id="tpBarFill" style="width:0%"></div>
+      <!-- SHARE CARD — shown only when you are currently leading -->
+      <div id="shareCard" class="share-card hidden">
+        <div class="share-card-inner">
+          <div class="share-card-text">
+            🏆 <strong>You're leading!</strong> Dare others to knock you off.
           </div>
-          <div class="tpBarLabels">
-            <span id="tpBarLeft">—</span>
-            <span id="tpBarRight">—</span>
+          <div class="share-actions">
+            <button id="shareTwitterBtn" class="share-btn share-btn-x" type="button">Post on X</button>
+            <button id="shareCopyBtn" class="share-btn share-btn-copy" type="button">Copy link</button>
           </div>
         </div>
-
-        <div class="tpTiers">
-          <div class="tpTier" id="tier0">
-            <div class="tpTierLeft">
-              <div class="tpTierName">250 Plays</div>
-              
-            </div>
-            <div class="tpTierDesc">5% of Vault</div>
-            <div class="tpTierRight" id="tier0Reward">—</div>
-          </div>
-
-          <div class="tpTier" id="tier1">
-            <div class="tpTierLeft">
-              <div class="tpTierName">2500 Plays</div>
-              
-            </div>
-            <div class="tpTierDesc">10% of Vault</div>
-            <div class="tpTierRight" id="tier1Reward">—</div>
-          </div>
-
-          <div class="tpTier" id="tier2">
-            <div class="tpTierLeft">
-              <div class="tpTierName">25000 Plays</div>
-              
-            </div>
-            <div class="tpTierDesc">20% of Vault</div>
-            <div class="tpTierRight" id="tier2Reward">—</div>
-          </div>
-        </div>
-
-        <div class="tpFoot" id="tpFoot">Rewards are projected from current vault balance.</div>
-      </section>
-      <div id="audioControls" style="display:flex; gap:10px; align-items:center; margin:10px 0;">
-      <button id="musicMuteBtn" type="button">Music: ON</button>
-      <button id="sfxMuteBtn" type="button">SFX: ON</button>
-      </div>
-      <div id="winnerLog" class="log"></div>
-      <div class="detailsToggle">
-        <button id="toggleDetailsBtn">Details</button>
       </div>
 
-      <section id="detailsPanel" class="detailsPanel hidden">
-        <div class="detailsCard">
-          <div class="row">
-            <span class="k">Program</span>
-            <a id="programLink" class="v mono" target="_blank" rel="noreferrer"></a>
+      <!-- CLAIM SHARE CARD — shown after a successful claim -->
+      <div id="claimShareCard" class="share-card claim-share-card hidden">
+        <div class="share-card-inner">
+          <div class="share-card-text">
+            🎉 <strong>You won!</strong> Boast about your riches on X.
           </div>
-          <div class="row">
-            <span class="k">Game</span>
-            <a id="stateLink" class="v mono" target="_blank" rel="noreferrer"></a>
+          <div class="claim-share-details">
+            <span class="claim-share-amount">You claimed <strong id="claimShareAmount">—</strong> $BUTTON</span>
+            <span class="claim-share-next">Next round starts when someone presses the button</span>
           </div>
-          <div class="row">
-            <span class="k">Vault</span>
-            <a id="vaultLink" class="v mono" target="_blank" rel="noreferrer"></a>
+          <div class="share-actions">
+            <button id="claimShareTwitterBtn" class="share-btn share-btn-x" type="button">Post on X</button>
+            <button id="claimShareCopyBtn" class="share-btn share-btn-copy" type="button">Copy link</button>
           </div>
-          <div class="row">
-            <span class="k">Mint</span>
-            <a id="mintLink" class="v mono" target="_blank" rel="noreferrer"></a>
-          </div>
-
-          <div class="divider"></div>
-
-          <div class="row">
-            <span class="k">Winner</span>
-            <a id="winnerLink" class="v mono" target="_blank" rel="noreferrer">—</a>
-          </div>
-          <div class="row">
-            <span class="k">Claimed</span>
-            <span id="unclaimedText" class="v mono">—</span>
-          </div>
-          <div class="row">
-            <span class="k">Play Cost</span>
-            <span id="playCostText" class="v mono">—</span>
-          </div>
-          <div class="row">
-            <span class="k">Vault</span>
-            <span id="vaultText" class="v mono">—</span>
-          </div>
-
-          <div class="divider"></div>
-
-          <div class="logsTitle">Activity</div>
-          <div id="activityLog" class="log"></div>
         </div>
-      </section>
+      </div>
+
+      <!-- LIVE FEED -->
+      <div class="feedBlock">
+        <div class="feedHeader">
+          <span class="feedTitle">Live Feed</span>
+          <span class="feedDot live-pulse" aria-hidden="true"></span>
+        </div>
+        <div id="winnerNow" class="feed"></div>
+      </div>
+
+      <!-- AUDIO -->
+      <div id="audioControls" class="audioControls">
+        <button id="musicMuteBtn" class="audioBtn" type="button" aria-label="Toggle music">
+          <span class="audio-icon">♪</span>
+          <span class="audio-label">Music</span>
+          <span class="audio-state">ON</span>
+        </button>
+        <button id="sfxMuteBtn" class="audioBtn" type="button" aria-label="Toggle sound effects">
+          <span class="audio-icon">◉</span>
+          <span class="audio-label">SFX</span>
+          <span class="audio-state">ON</span>
+        </button>
+      </div>
     </main>
+
+    <!-- SIDEBAR: Pot Unlocks + On-chain Details -->
+    <aside id="sidebar" class="sidebar" aria-label="Info: pot unlocks and on-chain details">
+      <div class="sidebarHeader">
+        <span class="sidebarTitle">Info</span>
+        <button id="sidebarCloseBtn" class="sidebarCloseBtn" type="button" aria-label="Close sidebar">×</button>
+      </div>
+      <div class="sidebarContent">
+        <section id="thresholdPanel" class="thresholdPanel" aria-label="Pot unlock thresholds">
+          <div class="tpHeader">
+            <div class="tpTitle">Pot Unlocks</div>
+            <div class="tpSub" id="tpSubLabel">Tier progress</div>
+          </div>
+          <div class="tpStatsRow">
+            <div class="tpStat">
+              <div class="tpStatLabel">Vault</div>
+              <div class="tpStatValue" id="tpVaultBalance">—</div>
+            </div>
+            <div class="tpStat">
+              <div class="tpStatLabel">Current Tier</div>
+              <div class="tpStatValue accent" id="tpProjectedPot">—</div>
+            </div>
+            <div class="tpStat">
+              <div class="tpStatLabel">Plays</div>
+              <div class="tpStatValue" id="tpPlays">—</div>
+            </div>
+          </div>
+          <div class="tpBarWrap">
+            <div class="tpBar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+              <div class="tpBarFill" id="tpBarFill" style="width:0%"></div>
+            </div>
+            <div class="tpBarLabels">
+              <span id="tpBarLeft">—</span>
+              <span id="tpBarRight">—</span>
+            </div>
+          </div>
+          <div class="tpTiers">
+            <div class="tpTier" id="tier0">
+              <div class="tpTierMilestone">250 <span class="tpPlaysLabel">plays</span></div>
+              <div class="tpTierPct">5% of vault</div>
+              <div class="tpTierReward" id="tier0Reward">—</div>
+            </div>
+            <div class="tpTier" id="tier1">
+              <div class="tpTierMilestone">2,500 <span class="tpPlaysLabel">plays</span></div>
+              <div class="tpTierPct">10% of vault</div>
+              <div class="tpTierReward" id="tier1Reward">—</div>
+            </div>
+            <div class="tpTier" id="tier2">
+              <div class="tpTierMilestone">25,000 <span class="tpPlaysLabel">plays</span></div>
+              <div class="tpTierPct">20% of vault</div>
+              <div class="tpTierReward" id="tier2Reward">—</div>
+            </div>
+          </div>
+          <div class="tpFoot" id="tpFoot">Rewards projected from current vault balance.</div>
+        </section>
+
+        <div class="detailsToggle">
+          <button id="toggleDetailsBtn" class="detailsToggleBtn">
+            <span>On-chain details</span>
+            <span class="toggle-arrow" id="toggleArrow">↓</span>
+          </button>
+        </div>
+        <section id="detailsPanel" class="detailsPanel hidden">
+          <div class="detailsCard">
+            <div class="detailsGrid">
+              <div class="detailsSection">
+                <div class="detailsSectionTitle">Contracts</div>
+                <div class="row"><span class="k">Program</span><a id="programLink" class="v" target="_blank" rel="noreferrer"></a></div>
+                <div class="row"><span class="k">Game State</span><a id="stateLink" class="v" target="_blank" rel="noreferrer"></a></div>
+                <div class="row"><span class="k">Vault</span><a id="vaultLink" class="v" target="_blank" rel="noreferrer"></a></div>
+                <div class="row"><span class="k">Mint</span><a id="mintLink" class="v" target="_blank" rel="noreferrer"></a></div>
+              </div>
+              <div class="detailsSection">
+                <div class="detailsSectionTitle">Round State</div>
+                <div class="row"><span class="k">Current Winner</span><a id="winnerLink" class="v" target="_blank" rel="noreferrer">—</a></div>
+                <div class="row"><span class="k">Claimed</span><span id="unclaimedText" class="v">—</span></div>
+                <div class="row"><span class="k">Play Cost</span><span id="playCostText" class="v">—</span></div>
+                <div class="row"><span class="k">Vault Balance</span><span id="vaultText" class="v">—</span></div>
+              </div>
+            </div>
+            <div class="divider"></div>
+            <div class="logsTitle">Activity Log</div>
+            <div id="activityLog" class="log"></div>
+          </div>
+        </section>
+      </div>
+    </aside>
+    </div>
   </div>
 
+  <canvas id="particleCanvas" aria-hidden="true"></canvas>
   <script src="app.js"></script>
 </body>
 </html>
