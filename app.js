@@ -306,11 +306,20 @@ const sfxDown        = new Audio("clickdown.wav");
 const sfxUp          = new Audio("clickup.wav");
 const sfxWoosh       = new Audio("woosh.wav");
 const sfxPlayComplete = new Audio("play.wav");
-[sfxDown, sfxUp, sfxWoosh, sfxPlayComplete].forEach(a => a.preload = "auto");
+const sfxLoading    = new Audio("loading.wav");
+[sfxDown, sfxUp, sfxWoosh, sfxPlayComplete, sfxLoading].forEach(a => a.preload = "auto");
 sfxWoosh.volume = 0.6; sfxPlayComplete.volume = 0.8;
+sfxLoading.loop = true; sfxLoading.volume = 0.5;
 
 function startBgMusicIfAllowed() { if (!musicMuted) try { bgMusic.play().catch(() => {}); } catch {} }
 function stopBgMusic()           { try { bgMusic.pause(); } catch {} }
+function startLoadingSound() {
+  if (sfxMuted || !sfxLoading) return;
+  try { sfxLoading.currentTime = 0; sfxLoading.play().catch(() => {}); } catch {}
+}
+function stopLoadingSound() {
+  try { sfxLoading.pause(); sfxLoading.currentTime = 0; } catch {}
+}
 function playSfx(a) {
   if (!a || sfxMuted) return;
   try { a.currentTime = 0; a.play().catch(() => {}); } catch {}
@@ -472,23 +481,28 @@ async function sendTx(ix, onStep) {
   const provider = getWalletProvider();
   if (!provider?.publicKey) throw new Error("Wallet not connected");
 
-  onStep?.("signing");
-  const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
-  const tx = new Transaction({ recentBlockhash: blockhash, feePayer: provider.publicKey });
-  tx.add(ix);
-  const signed = await provider.signTransaction(tx);
+  try {
+    onStep?.("signing");
+    startLoadingSound();
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash("confirmed");
+    const tx = new Transaction({ recentBlockhash: blockhash, feePayer: provider.publicKey });
+    tx.add(ix);
+    const signed = await provider.signTransaction(tx);
 
-  onStep?.("sending");
-  const sig = await connection.sendRawTransaction(signed.serialize(), {
-    skipPreflight: false,
-    preflightCommitment: "confirmed",
-  });
-  addLog("Sent tx", solscanTxUrl(sig));
+    onStep?.("sending");
+    const sig = await connection.sendRawTransaction(signed.serialize(), {
+      skipPreflight: false,
+      preflightCommitment: "confirmed",
+    });
+    addLog("Sent tx", solscanTxUrl(sig));
 
-  onStep?.("confirming");
-  await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
-  addLog("Confirmed", solscanTxUrl(sig));
-  return sig;
+    onStep?.("confirming");
+    await connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
+    addLog("Confirmed", solscanTxUrl(sig));
+    return sig;
+  } finally {
+    stopLoadingSound();
+  }
 }
 
 async function fastStateSyncBurst() {
