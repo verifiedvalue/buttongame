@@ -1278,8 +1278,6 @@ function setLabel(text) {
 }
 
 function render() {
-  if (btnPendingActive) return; // don't clobber tx-in-flight UI
-
   renderWalletPill();
   renderBalanceBar();
   if (!latestState) return;
@@ -1336,6 +1334,10 @@ function render() {
   if (timerHint) {
     timerHint.classList.toggle("hidden-hint", phase !== "ACTIVE" && phase !== "IDLE");
   }
+
+  // While a transaction is in-flight, we keep ticking the timer/UI,
+  // but we don't let render() override the button label/spinner/state.
+  if (btnPendingActive) return;
 
   // ── BUTTON STATE ──────────────────────────────────────
   const connected  = !!walletPubkey;
