@@ -1530,6 +1530,9 @@ async function onMain() {
     // before we show success toasts/animations.
     setBtnPending(false);
 
+    // Local feedback that our play landed, even if we suppress the global woosh.
+    playSfx(sfxPlayComplete);
+
     pending._dismiss();
     toastSuccess("Button pressed! ✅", "You're leading. Hold tight — don't let the clock run out.");
     addLog("Play complete");
