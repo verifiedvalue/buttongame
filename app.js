@@ -302,14 +302,18 @@ let sfxMuted   = localStorage.getItem(LS_SFX_MUTED)   === "1";
 const bgMusic = new Audio("winner.wav");
 bgMusic.preload = "auto"; bgMusic.loop = true; bgMusic.volume = 0.3;
 
-const sfxDown        = new Audio("clickdown.wav");
-const sfxUp          = new Audio("clickup.wav");
-const sfxWoosh       = new Audio("woosh.wav");
+const sfxDown         = new Audio("clickdown.wav");
+const sfxUp           = new Audio("clickup.wav");
+const sfxWoosh        = new Audio("woosh.wav");
 const sfxPlayComplete = new Audio("play.wav");
-const sfxLoading    = new Audio("loading.wav");
-[sfxDown, sfxUp, sfxWoosh, sfxPlayComplete, sfxLoading].forEach(a => a.preload = "auto");
+const sfxLoading      = new Audio("loading.wav");
+const sfxAlarm        = new Audio("alarm.wav");
+[sfxDown, sfxUp, sfxWoosh, sfxPlayComplete, sfxLoading, sfxAlarm].forEach(a => a.preload = "auto");
 sfxWoosh.volume = 0.6; sfxPlayComplete.volume = 0.8;
 sfxLoading.loop = true; sfxLoading.volume = 0.5;
+sfxAlarm.loop   = true; sfxAlarm.volume   = 0.6;
+
+let alarmPlaying = false;
 
 function startBgMusicIfAllowed() { if (!musicMuted) try { bgMusic.play().catch(() => {}); } catch {} }
 function stopBgMusic()           { try { bgMusic.pause(); } catch {} }
@@ -319,6 +323,18 @@ function startLoadingSound() {
 }
 function stopLoadingSound() {
   try { sfxLoading.pause(); sfxLoading.currentTime = 0; } catch {}
+}
+function startAlarm() {
+  if (sfxMuted || !sfxAlarm || alarmPlaying) return;
+  try {
+    sfxAlarm.currentTime = 0;
+    sfxAlarm.play().then(() => { alarmPlaying = true; }).catch(() => {});
+  } catch {}
+}
+function stopAlarm() {
+  if (!sfxAlarm || !alarmPlaying) return;
+  try { sfxAlarm.pause(); sfxAlarm.currentTime = 0; } catch {}
+  alarmPlaying = false;
 }
 function playSfx(a) {
   if (!a || sfxMuted) return;
@@ -334,6 +350,10 @@ function setMusicMuted(v) {
 function setSfxMuted(v) {
   sfxMuted = !!v;
   localStorage.setItem(LS_SFX_MUTED, sfxMuted ? "1" : "0");
+  if (sfxMuted) {
+    stopLoadingSound();
+    stopAlarm();
+  }
   updateAudioButtons();
 }
 function updateAudioButtons() {
@@ -918,7 +938,6 @@ function installWalletListeners(provider) {
     renderBalanceBar();
     renderWinnerLog();
     render();
-    refreshStateOnly("wallet-change");
     if (pubkey) refreshUserBalance();
   });
 
@@ -1310,6 +1329,8 @@ function render() {
   const isUrgent = phase === "ACTIVE" && secondsLeft > 0 && secondsLeft <= URGENT_SECS;
   clockDisplay?.classList.toggle("urgent", isUrgent);
   barFill?.classList.toggle("urgent", isUrgent);
+  if (isUrgent) startAlarm();
+  else          stopAlarm();
 
   // ── TIMER HINT ────────────────────────────────────────
   if (timerHint) {
@@ -1353,7 +1374,8 @@ function render() {
     mainBtn.disabled = false;
   } else if (phase === "COOLDOWN") {
     setLabel("COOLDOWN");
-    mainBtn.disabled = true;
+    // Let users "practice" presses during cooldown — clickable but no-op in logic
+    mainBtn.disabled = false;
     mainBtn.classList.add("cooldown");
   } else {
     setLabel("WAIT");
@@ -1392,6 +1414,13 @@ async function onMain() {
   const now        = nowSec();
   const isWinner   = walletPubkey.toBase58() === latestState.currentWinner.toBase58();
   const timerEnded = latestState.timerEnd > 0 && now > latestState.timerEnd;
+  const phase      = computePhase(latestState, now);
+
+  // During COOLDOWN, ONLY the winning wallet with an unclaimed pot can do anything (claim).
+  // Everyone else can still press for sound/animation, but we bail out before any on-chain logic.
+  if (phase === "COOLDOWN" && !(isWinner && latestState.unclaimed && latestState.enabled && timerEnded)) {
+    return;
+  }
 
   // ── CLAIM ──────────────────────────────────────────────
   if (isWinner && latestState.unclaimed && latestState.enabled && timerEnded) {
@@ -1575,8 +1604,11 @@ mainBtn.addEventListener("pointerdown", e => {
   playSfx(sfxDown);
 
   const { left, top, width, height } = mainBtn.getBoundingClientRect();
-  const color = mainBtn.classList.contains("claimArmed") ? "#F9AB00"
-              : mainBtn.classList.contains("urgent")     ? "#E8392C" : "#1E8E3E";
+  let color;
+  if (mainBtn.classList.contains("claimArmed"))       color = "#F9AB00";  // golden
+  else if (mainBtn.classList.contains("urgent"))      color = "#E8392C";  // red
+  else if (mainBtn.classList.contains("cooldown"))    color = "#6366F1";  // indigo to match cooldown
+  else                                                color = "#1E8E3E";  // default green
   spawnParticles(left + width / 2, top + height / 2, color);
 });
 
