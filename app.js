@@ -381,7 +381,16 @@ function escapeHtml(s) {
   );
 }
 
-function nowSec() { return Math.floor(Date.now() / 1000); }
+// Server-time offset (sec): applied so timer/cooldown match across devices (no buffering; skew was the cause of differences)
+let timeOffsetSec = 0;
+async function syncTimeOnce() {
+  try {
+    const r = await fetch("https://worldtimeapi.org/api/ip", { cache: "no-store" });
+    const d = await r.json();
+    if (typeof d.unixtime === "number") timeOffsetSec = d.unixtime - Math.floor(Date.now() / 1000);
+  } catch (_) {}
+}
+function nowSec() { return Math.floor(Date.now() / 1000) + timeOffsetSec; }
 
 function fmtClock(seconds) {
   const s = Math.max(0, Math.floor(seconds));
@@ -428,7 +437,7 @@ function fmtTierReward(divisor) {
               : divisor == 10n ?  2500n * 1_000_000_000n
               : divisor == 20n ?   250n * 1_000_000_000n : 0n;
   const displayVault = getDisplayVault();
-  const displayExtra = extra * VAULT_DISPLAY_MULTIPLIER;
+  const displayExtra = extra;
   return divisor > 0n ? fmtRounded((displayVault + displayExtra) / divisor) : "0";
 }
 
@@ -793,13 +802,13 @@ function computePhase(gs, now) {
   return "IDLE";
 }
 
-// Plain-English, action-oriented labels
-function phaseLabel(phase) {
+// Plain-English, action-oriented labels (pass state for COOLDOWN so we can show "Preparing for next round" when claimed)
+function phaseLabel(phase, gs) {
   switch (phase) {
     case "DISABLED":                return "Game is paused";
     case "IDLE":                    return "Waiting for the first press — go ahead, start it";
     case "ACTIVE":                  return "Round live — press last to win the pot";
-    case "COOLDOWN":                return "Round over — winner can claim their pot now";
+    case "COOLDOWN":                return (gs && gs.unclaimed) ? "Preparing for next round" : "Round over — winner can claim their pot now";
     case "POST_COOLDOWN_UNCLAIMED": return "Pot unclaimed — pressing again starts a new round";
     default:                        return "—";
   }
@@ -1247,7 +1256,7 @@ function render() {
 
   renderPotIfNeeded();
   updateThresholdPanelIfNeeded();
-  if (phaseText) phaseText.textContent = phaseLabel(phase);
+  if (phaseText) phaseText.textContent = phaseLabel(phase, latestState);
 
   const winner58          = latestState.currentWinner.toBase58();
   const isWinnerConnected = !!walletPubkey && walletPubkey.toBase58() === winner58;
@@ -1663,6 +1672,12 @@ function connectRelay() {
   mintLink.textContent    = mintPk.toBase58();
   mintLink.href           = solscanAccountUrl(mintPk.toBase58());
 
+  const buyUrl = `https://pump.fun/coin/${GAME_MINT}`;
+  const buyTopbar = el("buyButtonTopbar");
+  const buyAbovePot = el("buyButtonAbovePot");
+  if (buyTopbar) buyTopbar.href = buyUrl;
+  if (buyAbovePot) buyAbovePot.href = buyUrl;
+
   const provider = getWalletProvider();
   if (provider) installWalletListeners(provider);
 
@@ -1699,6 +1714,7 @@ function connectRelay() {
     setInterval(render, UI_TICK_MS);
   }
 
+  syncTimeOnce(); // align timer/cooldown with server time so all devices show the same countdown
   if (walletPubkey) refreshUserBalance();
   mainBtn.disabled = false;
 })();
