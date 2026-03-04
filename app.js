@@ -542,13 +542,12 @@ function escapeHtml(s) {
   );
 }
 
-// Server-time offset (sec): applied so timer/cooldown match Solana / shared time across devices
+// Server-time offset (sec): applied so timer/cooldown match across devices (no buffering; skew was the cause of differences)
 let timeOffsetSec = 0;
-const SOLANA_TIME_SYNC_INTERVAL_MS = 2500; // when ACTIVE, resync with chain this often
-let lastSolanaTimeSyncMs = 0;
-let solanaTimeSyncInFlight = false;
-
 async function syncTimeOnce() {
+  // Try a few times to get a stable, shared time source so that all
+  // clients (especially when using the Railway relay) see the same
+  // countdown within a small margin.
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const r = await fetch("https://worldtimeapi.org/api/ip", { cache: "no-store" });
@@ -558,25 +557,10 @@ async function syncTimeOnce() {
         break;
       }
     } catch (_) {}
+    // Small delay before retry
     await new Promise(r => setTimeout(r, 400));
   }
 }
-
-/** Sync nowSec() to Solana cluster time (latest confirmed block). Priority when game is ACTIVE so timer is accurate. */
-async function syncSolanaTime() {
-  if (!connection || solanaTimeSyncInFlight) return;
-  solanaTimeSyncInFlight = true;
-  try {
-    const height = await connection.getBlockHeight("confirmed");
-    if (height == null) return;
-    const blockTime = await connection.getBlockTime(height);
-    if (typeof blockTime === "number") {
-      timeOffsetSec = blockTime - Math.floor(Date.now() / 1000);
-    }
-  } catch (_) {}
-  solanaTimeSyncInFlight = false;
-}
-
 function nowSec() { return Math.floor(Date.now() / 1000) + timeOffsetSec; }
 
 function fmtClock(seconds) {
@@ -1719,17 +1703,6 @@ function render() {
   const now   = nowSec();
   const phase = computePhase(latestState, now);
 
-  // Timer priority: when ACTIVE, keep "now" synced to Solana block time so countdown is accurate for everyone
-  if (phase === "ACTIVE" && connection) {
-    const t = Date.now();
-    if (t - lastSolanaTimeSyncMs >= SOLANA_TIME_SYNC_INTERVAL_MS) {
-      lastSolanaTimeSyncMs = t;
-      syncSolanaTime();
-    }
-  } else if (lastRenderedPhase === "ACTIVE") {
-    lastSolanaTimeSyncMs = 0; // next time we enter ACTIVE, sync immediately
-  }
-
   // Round just ended (time crossed timerEnd): play end.wav once — transition is seen in render, not only on state push
   if (lastRenderedPhase === "ACTIVE" && phase === "COOLDOWN") {
     const te = latestState.timerEnd;
@@ -1761,20 +1734,17 @@ function render() {
     hideClaimShareCard();
   }
 
-  // ── CLOCK + PROGRESS BAR (timer = Solana time vs timerEnd when ACTIVE; nowSec() kept in sync above) ──
-  // Clamp to round/cooldown length so we never show absurd values (e.g. 77407:04) from bad chain data or clock skew
+  // ── CLOCK + PROGRESS BAR ──────────────────────────────
   let secondsLeft = 0, pct = 0;
   if (phase === "ACTIVE") {
-    const dur = Math.max(1, latestState.roundDurationSecs || 1);
-    const raw = latestState.timerEnd - now;
-    secondsLeft = Math.max(0, Math.min(dur, raw));
+    secondsLeft = latestState.timerEnd - now;
     if (clockLabel) clockLabel.textContent = "Time Remaining";
+    const dur = Math.max(1, latestState.roundDurationSecs || 1);
     pct = Math.max(0, Math.min(1, (dur - secondsLeft) / dur));
   } else if (phase === "COOLDOWN") {
-    const total = Math.max(1, (latestState.cooldownEnd - latestState.timerEnd) || 1);
-    const raw = latestState.cooldownEnd - now;
-    secondsLeft = Math.max(0, Math.min(total, raw));
+    secondsLeft = latestState.cooldownEnd - now;
     if (clockLabel) clockLabel.textContent = "Cooldown";
+    const total = Math.max(1, (latestState.cooldownEnd - latestState.timerEnd) || 1);
     pct = Math.max(0, Math.min(1, (total - secondsLeft) / total));
   } else if (phase === "POST_COOLDOWN_UNCLAIMED" || phase === "DISABLED" || phase === "IDLE") {
     // Waiting phases (including after cooldown before first play): show full round duration (default 60s)
