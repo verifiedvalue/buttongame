@@ -354,7 +354,8 @@ const toastWarn    = (t, m) => showToast({ type: "warn",    title: t, message: m
 /////////////////////////////
 // AUDIO
 /////////////////////////////
-let lastTimerEndSeen  = null;
+let lastTimerEndSeen   = null;
+let lastEndSoundTimerEnd = null; // play end.wav once per round end
 let suppressNextWoosh = false;
 
 const LS_MUSIC_MUTED = "buttonGame_musicMuted";
@@ -377,7 +378,8 @@ const sfxLoading      = new Audio("loading.wav");
 const sfxAlarm        = new Audio("alarm.wav");
 const sfxAlmost       = new Audio("almost.wav");
 const sfxClaim        = new Audio("claim.wav");
-[sfxDown, sfxUp, sfxWoosh, sfxPlayComplete, sfxLoading, sfxAlarm, sfxAlmost, sfxClaim, playSong, bgMusic].forEach(a => a.preload = "auto");
+const sfxEnd          = new Audio("end.wav");
+[sfxDown, sfxUp, sfxWoosh, sfxPlayComplete, sfxLoading, sfxAlarm, sfxAlmost, sfxClaim, sfxEnd, playSong, bgMusic].forEach(a => a.preload = "auto");
 // Click down/up plus "bubble" SFX. Woosh/play are used on winner changes + round resets.
 sfxDown.volume         = 0.6;
 sfxUp.volume           = 0.6;
@@ -387,6 +389,7 @@ sfxLoading.loop = false; sfxLoading.volume = 0.05;
 sfxAlarm.loop   = true; sfxAlarm.volume   = 0.4;
 sfxAlmost.volume = 0.5;
 sfxClaim.volume  = 0.5;
+sfxEnd.loop      = false; sfxEnd.volume = 0.5;
 
 let alarmPlaying      = false;
 let almostPlaying     = false;
@@ -539,12 +542,13 @@ function escapeHtml(s) {
   );
 }
 
-// Server-time offset (sec): applied so timer/cooldown match across devices (no buffering; skew was the cause of differences)
+// Server-time offset (sec): applied so timer/cooldown match Solana / shared time across devices
 let timeOffsetSec = 0;
+const SOLANA_TIME_SYNC_INTERVAL_MS = 2500; // when ACTIVE, resync with chain this often
+let lastSolanaTimeSyncMs = 0;
+let solanaTimeSyncInFlight = false;
+
 async function syncTimeOnce() {
-  // Try a few times to get a stable, shared time source so that all
-  // clients (especially when using the Railway relay) see the same
-  // countdown within a small margin.
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const r = await fetch("https://worldtimeapi.org/api/ip", { cache: "no-store" });
@@ -554,10 +558,25 @@ async function syncTimeOnce() {
         break;
       }
     } catch (_) {}
-    // Small delay before retry
     await new Promise(r => setTimeout(r, 400));
   }
 }
+
+/** Sync nowSec() to Solana cluster time (latest confirmed block). Priority when game is ACTIVE so timer is accurate. */
+async function syncSolanaTime() {
+  if (!connection || solanaTimeSyncInFlight) return;
+  solanaTimeSyncInFlight = true;
+  try {
+    const height = await connection.getBlockHeight("confirmed");
+    if (height == null) return;
+    const blockTime = await connection.getBlockTime(height);
+    if (typeof blockTime === "number") {
+      timeOffsetSec = blockTime - Math.floor(Date.now() / 1000);
+    }
+  } catch (_) {}
+  solanaTimeSyncInFlight = false;
+}
+
 function nowSec() { return Math.floor(Date.now() / 1000) + timeOffsetSec; }
 
 function fmtClock(seconds) {
@@ -1526,8 +1545,12 @@ async function refreshStateOnly(source = "manual") {
         }
       }
 
-      // Transition into COOLDOWN (round just ended): non-winners see pot → 0 → next round pot (modified vault)
-      // Winner keeps seeing current pot until they claim
+      // Transition into COOLDOWN (round just ended): play end sound once per round for everyone
+      if (prevState && prevPhase !== "COOLDOWN" && currentPhase === "COOLDOWN") {
+        const te = decoded.timerEnd;
+        if (te !== lastEndSoundTimerEnd) { lastEndSoundTimerEnd = te; playSfx(sfxEnd); }
+      }
+      // Non-winners see pot → 0 → next round pot (modified vault); winner keeps seeing current pot until they claim
       if (prevState && prevPhase !== "COOLDOWN" && currentPhase === "COOLDOWN" && !isWinnerClient && !potAnimActive) {
         const currentPot = computePotFromStateAndVault(decoded, prevVaultAmount);
         if (currentPot > 0n) {
@@ -1574,6 +1597,7 @@ let potAnimActive   = false;
 let potAnimFrameId  = null;
 // When set, non-winners see this "next round" pot during COOLDOWN until claim is made
 let potDisplayNextRoundOverride = null;
+let lastRenderedPhase = null; // detect ACTIVE -> COOLDOWN in render (time-based transition) for end.wav
 
 function computePotFromStateAndVault(gs, vaultAmount) {
   if (!gs) return 0n;
@@ -1674,20 +1698,44 @@ function setLabel(text) {
 function render() {
   renderWalletPill();
   renderBalanceBar();
+  // No state or game disabled: stay in wait phase (simulated pot, WAIT button, no tx)
   if (!latestState) {
-    if (simulationMode) {
-      // Pre-launch demo: static timer + simulated pot
-      if (phaseText)    phaseText.textContent    = "Game not live yet — demo mode";
-      if (clockLabel)   clockLabel.textContent   = "Waiting";
-      if (clockDisplay) clockDisplay.textContent = fmtClock(60);
-      if (barFill)      barFill.style.width      = "0%";
-      if (potDisplay)   potDisplay.textContent   = fmtRounded(getSimulatedPotRaw());
-    }
+    lastRenderedPhase = null;
+    simulationMode = true;
+    if (phaseText)    phaseText.textContent    = "Game not live yet — demo mode";
+    if (clockLabel)   clockLabel.textContent   = "Waiting";
+    if (clockDisplay) clockDisplay.textContent = fmtClock(60);
+    if (barFill)      barFill.style.width      = "0%";
+    if (potDisplay)   potDisplay.textContent   = fmtRounded(getSimulatedPotRaw());
+    if (currentWinnerDisplay) currentWinnerDisplay.textContent = "Press the Button to become the Winner";
+    preLaunchCard?.classList.remove("hidden");
+    mainBtn.classList.remove("disabled", "claimLocked", "claimArmed", "claimWaiting", "urgent", "cooldown");
+    mainBtn.disabled = false;
+    setLabel("WAIT");
+    claimWaitHint?.classList.add("hidden");
     return;
   }
 
   const now   = nowSec();
   const phase = computePhase(latestState, now);
+
+  // Timer priority: when ACTIVE, keep "now" synced to Solana block time so countdown is accurate for everyone
+  if (phase === "ACTIVE" && connection) {
+    const t = Date.now();
+    if (t - lastSolanaTimeSyncMs >= SOLANA_TIME_SYNC_INTERVAL_MS) {
+      lastSolanaTimeSyncMs = t;
+      syncSolanaTime();
+    }
+  } else if (lastRenderedPhase === "ACTIVE") {
+    lastSolanaTimeSyncMs = 0; // next time we enter ACTIVE, sync immediately
+  }
+
+  // Round just ended (time crossed timerEnd): play end.wav once — transition is seen in render, not only on state push
+  if (lastRenderedPhase === "ACTIVE" && phase === "COOLDOWN") {
+    const te = latestState.timerEnd;
+    if (te !== lastEndSoundTimerEnd) { lastEndSoundTimerEnd = te; playSfx(sfxEnd); }
+  }
+  lastRenderedPhase = phase;
 
    updatePhaseMusic(phase);
 
@@ -1699,29 +1747,34 @@ function render() {
   const isWinnerConnected = !!walletPubkey && walletPubkey.toBase58() === winner58;
   const defaultPk58       = PublicKey.default.toBase58();
   if (currentWinnerDisplay) {
-    currentWinnerDisplay.textContent = winner58 !== defaultPk58 ? displayName(winner58) : "—";
+    const showCta = phase === "IDLE" || phase === "COOLDOWN" || phase === "POST_COOLDOWN_UNCLAIMED" || phase === "DISABLED";
+    currentWinnerDisplay.textContent = showCta ? "Press the Button to become the Winner" : (winner58 !== defaultPk58 ? displayName(winner58) : "—");
   }
 
   // Share card: show when leading or after they've played this session (tweet notice stays available)
-  const hasPlayedSession = !!walletPubkey && winnerHistory.some((row) => row.winner === walletPubkey.toBase58());
-  updateShareCard((isWinnerConnected && phase === "ACTIVE") || hasPlayedSession);
+  // "You're leading" tweet only while actually leading in an active round — hide during WAITING, COOLDOWN, IDLE, etc.
+  const showTweetCard = isWinnerConnected && phase === "ACTIVE";
+  updateShareCard(showTweetCard);
 
   // Claim share card: hide once a new round goes ACTIVE (someone pressed after our claim)
   if (claimShareCardVisible && phase === "ACTIVE") {
     hideClaimShareCard();
   }
 
-  // ── CLOCK + PROGRESS BAR ──────────────────────────────
+  // ── CLOCK + PROGRESS BAR (timer = Solana time vs timerEnd when ACTIVE; nowSec() kept in sync above) ──
+  // Clamp to round/cooldown length so we never show absurd values (e.g. 77407:04) from bad chain data or clock skew
   let secondsLeft = 0, pct = 0;
   if (phase === "ACTIVE") {
-    secondsLeft = latestState.timerEnd - now;
-    if (clockLabel) clockLabel.textContent = "Time Remaining";
     const dur = Math.max(1, latestState.roundDurationSecs || 1);
+    const raw = latestState.timerEnd - now;
+    secondsLeft = Math.max(0, Math.min(dur, raw));
+    if (clockLabel) clockLabel.textContent = "Time Remaining";
     pct = Math.max(0, Math.min(1, (dur - secondsLeft) / dur));
   } else if (phase === "COOLDOWN") {
-    secondsLeft = latestState.cooldownEnd - now;
-    if (clockLabel) clockLabel.textContent = "Cooldown";
     const total = Math.max(1, (latestState.cooldownEnd - latestState.timerEnd) || 1);
+    const raw = latestState.cooldownEnd - now;
+    secondsLeft = Math.max(0, Math.min(total, raw));
+    if (clockLabel) clockLabel.textContent = "Cooldown";
     pct = Math.max(0, Math.min(1, (total - secondsLeft) / total));
   } else if (phase === "POST_COOLDOWN_UNCLAIMED" || phase === "DISABLED" || phase === "IDLE") {
     // Waiting phases (including after cooldown before first play): show full round duration (default 60s)
@@ -1836,10 +1889,12 @@ async function ensureAtaExistsForWallet() {
 // MAIN BUTTON ACTION
 /////////////////////////////
 async function onMain() {
-  // Pre-launch / demo mode: let users press the button, but never hit Solana.
+  // Pre-launch / demo mode or game disabled: never send a transaction.
   if (simulationMode || !latestState || !latestState.enabled) {
     return;
   }
+  const phaseAtStart = computePhase(latestState, nowSec());
+  if (phaseAtStart === "DISABLED") return;
 
   // No wallet → connect first, then retry
   if (!walletPubkey) {
@@ -1867,6 +1922,8 @@ async function onMain() {
 
   // ── CLAIM ──────────────────────────────────────────────
   if (isWinner && latestState.unclaimed && latestState.enabled && timerEnded) {
+    // Re-validate right before building/sending: state may have changed (e.g. game disabled)
+    if (!latestState || !latestState.enabled || simulationMode) return;
     const ix = await buildClaimIx({
       winnerPk:    walletPubkey,
       winnerAtaPk: latestState.currentWinnerAta,
@@ -1939,6 +1996,13 @@ async function onMain() {
   // ATA check before any loading UI (avoids flashing spinner for a local cache hit)
   const ataOk = await ensureAtaExistsForWallet();
   if (!ataOk) { showNoAtaCard(); return; }
+
+  // Re-validate after await: game may have been disabled or phase changed (avoids sending tx in disabled state)
+  const phaseNow = computePhase(latestState, nowSec());
+  if (!latestState || !latestState.enabled || simulationMode ||
+      (phaseNow !== "ACTIVE" && phaseNow !== "IDLE" && phaseNow !== "POST_COOLDOWN_UNCLAIMED")) {
+    return;
+  }
 
   // If we know the balance and it's below the play cost, don't send a tx — show the buy-tokens notice instead.
   if (userTokenBalance !== null && latestState?.playCost > 0n && userTokenBalance < latestState.playCost) {
@@ -2095,10 +2159,13 @@ connectBtn?.addEventListener("click",    connectWallet);
 disconnectBtn?.addEventListener("click", disconnectWallet);
 
 let isPressing = false;
+/** True only when the last pointerup was inside the button (avoids firing onMain when user released over sidebar/other UI). */
+let releaseInsideButton = false;
 
 mainBtn.addEventListener("pointerdown", e => {
   if (mainBtn.disabled) return;
   isPressing = true;
+  releaseInsideButton = false;
   try { mainBtn.setPointerCapture(e.pointerId); } catch {}
   playSfx(sfxDown);
 
@@ -2118,6 +2185,9 @@ mainBtn.addEventListener("pointerdown", e => {
 
 function onRelease(e) {
   if (!isPressing) return;
+  const rect = mainBtn.getBoundingClientRect();
+  releaseInsideButton = e && typeof e.clientX === "number" && typeof e.clientY === "number" &&
+    e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
   isPressing = false;
   if (typeof e?.pointerId === "number") try { mainBtn.releasePointerCapture(e.pointerId); } catch {}
   playSfx(sfxUp);
@@ -2126,7 +2196,11 @@ function onRelease(e) {
 mainBtn.addEventListener("pointerup",          onRelease);
 mainBtn.addEventListener("pointercancel",       onRelease);
 mainBtn.addEventListener("lostpointercapture",  onRelease);
-mainBtn.addEventListener("click",               onMain);
+mainBtn.addEventListener("click", e => {
+  if (!releaseInsideButton) return;
+  releaseInsideButton = false;
+  onMain();
+});
 
 /////////////////////////////
 // RELAY / SSE
@@ -2217,7 +2291,7 @@ async function fetchClaims() {
 function applyRelayState(payload) {
   if (payload.type === "error") { console.warn("[Relay]", payload.message); return; }
   mergeNamesFromPayload(payload);
-  if (payload.type !== "state") return;
+  if (payload.type !== "state" || !payload.state) return;
 
   const gs      = payload.state;
   const decoded = {
@@ -2252,14 +2326,21 @@ function applyRelayState(payload) {
     preLaunchCard?.classList.add("hidden");
   }
 
-  const sig     = stateSignature(decoded);
-  const changed = sig !== lastStateSig;
+  const sig       = stateSignature(decoded);
+  const changed   = sig !== lastStateSig;
+  const now       = nowSec();
+  const prevPhase = latestState ? computePhase(latestState, now) : null;
   latestState = decoded;
 
   const plays = decoded.sessionPlays;
   if (lastPlaysSeen === null) lastPlaysSeen = plays;
 
   if (changed) {
+    const currentPhase = computePhase(decoded, now);
+    if (prevPhase !== "COOLDOWN" && currentPhase === "COOLDOWN") {
+      const te = decoded.timerEnd;
+      if (te !== lastEndSoundTimerEnd) { lastEndSoundTimerEnd = te; playSfx(sfxEnd); }
+    }
     lastStateSig = sig;
     handleWooshOnTimerReset(decoded);
     trackWinnerChanges(decoded);
@@ -2380,6 +2461,7 @@ function connectRelay() {
     connectRelay();
     if (walletPubkey) fetchUsernamesForAddresses([walletPubkey.toBase58()]).then(() => { renderWalletPill(); renderWinnerLog(); });
     setInterval(render, UI_TICK_MS);
+    render(); // show wait phase immediately if no state, don't wait for first tick
   } else {
     await refreshStateOnly("boot");
     await maybeRefreshVaultAmount("boot");
