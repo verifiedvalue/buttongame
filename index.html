@@ -21,30 +21,65 @@
   <!-- TOAST CONTAINER -->
   <div id="toastContainer" class="toast-container" aria-live="polite" aria-atomic="false"></div>
 
+  <!-- USERNAME MODAL -->
+  <div id="usernameModal" class="username-modal hidden" aria-hidden="true">
+    <div class="username-modal-backdrop"></div>
+    <div class="username-modal-card">
+      <h3 class="username-modal-title">Set your username</h3>
+      <p class="username-modal-hint">3–18 characters. Letters, numbers, _ - . only. Shows in Live Feed and Win History.</p>
+      <p id="usernameError" class="username-modal-error hidden" role="alert"></p>
+      <input id="usernameInput" type="text" class="username-input" placeholder="Username" maxlength="18" autocomplete="off" />
+      <div class="username-modal-actions">
+        <button id="usernameCancelBtn" class="chip ghost" type="button">Cancel</button>
+        <button id="usernameSetBtn" class="chip" type="button">Set</button>
+      </div>
+    </div>
+  </div>
+
   <div class="console">
 
     <header class="topbar">
-      <div class="brand">
-        <div class="brand-icon" aria-hidden="true">
-          <span></span><span></span>
-          <span></span><span></span>
+      <div class="brandRow">
+        <div class="brand">
+          <div class="brand-icon" aria-hidden="true">
+            <span></span><span></span>
+            <span></span><span></span>
+          </div>
+          <span class="brand-name" aria-label="$BUTTON">
+            <span class="c1">$</span><span class="c2">B</span><span class="c3">U</span><span class="c4">T</span><span class="c5">T</span><span class="c6">O</span><span class="c7">N</span>
+          </span>
         </div>
-        <span class="brand-name" aria-label="$BUTTON">
-          <span class="c1">$</span><span class="c2">B</span><span class="c3">U</span><span class="c4">T</span><span class="c5">T</span><span class="c6">O</span><span class="c7">N</span>
-        </span>
+        <button id="claimLogToggleBtn" class="chip ghost claim-log-toggle" type="button" aria-label="Toggle win history" title="Win history">
+          Win History
+        </button>
+        <button id="sidebarToggleBtn" class="chip ghost" type="button" aria-label="Open pot unlocks" title="Pot unlocks & on-chain details">
+          Game Details
+        </button>
+      </div>
+
+      <!-- Claim log dropdown (left side) -->
+      <div id="claimLogPanel" class="claim-log-panel hidden" aria-hidden="true">
+        <div class="claim-log-header">
+          <h2 class="claim-log-title">Win history</h2>
+          <button id="claimLogCloseBtn" class="chip ghost claim-log-close" type="button" aria-label="Close">×</button>
+        </div>
+        <div id="claimLogList" class="claim-log-list"></div>
       </div>
 
       <div class="walletArea">
-        <button id="sidebarToggleBtn" class="chip ghost" type="button" aria-label="Open info and details" title="Pot unlocks & on-chain details">
-          Info
+        <button id="themeToggleBtn" class="chip ghost" type="button" aria-label="Toggle dark mode" title="Toggle dark mode">
+          Dark
         </button>
         <div id="relayStatus" class="relay-pill" title="Relay connection status">
           <span class="relay-dot"></span>
           <span class="relay-label">Live</span>
         </div>
-        <div id="walletStatus" class="walletPill">
-          <span id="walletDot" class="dot"></span>
-          <span id="walletText">Not connected</span>
+        <div class="walletPillWrap">
+          <div id="walletStatus" class="walletPill" role="button" tabindex="0" aria-label="Wallet; click to set or change name">
+            <span id="walletDot" class="dot"></span>
+            <span id="walletText">Not connected</span>
+          </div>
+          <button id="setUsernameBubble" type="button" class="username-bubble hidden" aria-label="Set display name">Set name</button>
         </div>
         <button id="connectBtn" class="chip">Connect</button>
         <button id="disconnectBtn" class="chip ghost" style="display:none">Disconnect</button>
@@ -60,6 +95,7 @@
         <div class="potValueWrap">
           <div id="potDisplay" class="potValue">—</div>
           <div class="potCurrency">$BUTTON</div>
+          <div id="currentWinnerDisplay" class="potWinner">—</div>
         </div>
         <div class="potSub" id="phaseText">Loading…</div>
       </div>
@@ -71,6 +107,11 @@
           <span class="btn-spinner hidden" id="btnSpinner" aria-hidden="true"></span>
           <span class="btn-label" id="btnLabelEl">LOADING</span>
         </button>
+      </div>
+
+      <!-- CLAIM WAIT HINT — winner pressed CLAIM before round end -->
+      <div id="claimWaitHint" class="claim-wait-hint hidden">
+        You’re in the lead — you can claim once this round ends.
       </div>
 
       <!-- BALANCE BAR — shown after wallet connect -->
@@ -220,12 +261,12 @@
               <div class="tpStatValue" id="tpVaultBalance">—</div>
             </div>
             <div class="tpStat">
-              <div class="tpStatLabel">Current Tier</div>
-              <div class="tpStatValue accent" id="tpProjectedPot">—</div>
+              <div class="tpStatLabel">% of Vault</div>
+              <div class="tpStatValue" id="tpPctVault">—</div>
             </div>
             <div class="tpStat">
-              <div class="tpStatLabel">Plays</div>
-              <div class="tpStatValue" id="tpPlays">—</div>
+              <div class="tpStatLabel">Pot</div>
+              <div class="tpStatValue accent" id="tpProjectedPot">—</div>
             </div>
           </div>
           <div class="tpBarWrap">

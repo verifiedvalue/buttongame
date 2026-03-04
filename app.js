@@ -34,6 +34,9 @@ const RELAY_URL = "https://buttongamerelay-production.up.railway.app/"; // ← P
 // Set to 1n for normal behavior (no scaling).
 const VAULT_DISPLAY_MULTIPLIER = 1n;
 
+// Theme
+const THEME_STORAGE_KEY = "buttonGameTheme";
+
 // Pre-launch simulation: show a fake pot based on a simulated vault of 100M tokens
 const SIMULATION_VAULT_TOKENS = 100_000_000n;
 
@@ -66,16 +69,60 @@ let connection = null;
 /////////////////////////////
 const el = id => document.getElementById(id);
 
+function getPreferredTheme() {
+  try {
+    const stored = localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored === "dark" || stored === "light") return stored;
+  } catch {}
+  if (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches) {
+    return "dark";
+  }
+  return "light";
+}
+
+function applyTheme(theme) {
+  const root = document.documentElement;
+  root.setAttribute("data-theme", theme);
+  if (themeToggleBtn) {
+    themeToggleBtn.textContent = theme === "dark" ? "Light" : "Dark";
+  }
+}
+
+function initTheme() {
+  const initial = getPreferredTheme();
+  applyTheme(initial);
+  if (themeToggleBtn) {
+    themeToggleBtn.addEventListener("click", () => {
+      const current = document.documentElement.getAttribute("data-theme") || "light";
+      const next = current === "dark" ? "light" : "dark";
+      try { localStorage.setItem(THEME_STORAGE_KEY, next); } catch {}
+      applyTheme(next);
+    });
+  }
+}
+
 // Top bar
 const walletDot     = el("walletDot");
 const walletText    = el("walletText");
 const connectBtn    = el("connectBtn");
 const disconnectBtn = el("disconnectBtn");
 const relayStatusEl = el("relayStatus");
+const themeToggleBtn = el("themeToggleBtn");
+const setUsernameBubble = el("setUsernameBubble");
+const claimLogToggleBtn = el("claimLogToggleBtn");
+const claimLogPanel     = el("claimLogPanel");
+const claimLogList      = el("claimLogList");
+const claimLogCloseBtn  = el("claimLogCloseBtn");
+const usernameModal    = el("usernameModal");
+const usernameInput    = el("usernameInput");
+const usernameError    = el("usernameError");
+const usernameSetBtn   = el("usernameSetBtn");
+const usernameCancelBtn = el("usernameCancelBtn");
 
 // Pot
-const potDisplay = el("potDisplay");
-const phaseText  = el("phaseText");
+const potDisplay         = el("potDisplay");
+const currentWinnerDisplay = el("currentWinnerDisplay");
+const phaseText          = el("phaseText");
 
 // Button
 const mainBtn    = el("mainBtn");
@@ -100,6 +147,7 @@ const noAtaCard     = el("noAtaCard");
 const ataPlayCostEl = el("ataPlayCost");
 const ataMintLinkEl = el("ataMintLink");
 const preLaunchCard = el("preLaunchCard");
+const claimWaitHint = el("claimWaitHint");
 
 // Share card
 const shareCard           = el("shareCard");
@@ -136,7 +184,7 @@ const vaultText        = el("vaultText");
 // Threshold panel
 const tpProjectedPot = el("tpProjectedPot");
 const tpVaultBalance = el("tpVaultBalance");
-const tpPlays        = el("tpPlays");
+const tpPctVault     = el("tpPctVault");
 const tpDivisor      = el("tpDivisor"); // optional — null-guarded
 const tpBarFill      = el("tpBarFill");
 const tpBarLeft      = el("tpBarLeft");
@@ -319,7 +367,7 @@ const bgMusic = new Audio("winner.wav");      // used only as cooldown song now
 bgMusic.preload = "auto"; bgMusic.loop = true; bgMusic.volume = 0.3;
 
 const playSong = new Audio("playsong.wav");   // plays while a round is ACTIVE
-playSong.preload = "auto"; playSong.loop = true; playSong.volume = 0.2;
+playSong.preload = "auto"; playSong.loop = true; playSong.volume = 0.05;
 
 const sfxDown         = new Audio("clickdown.wav");
 const sfxUp           = new Audio("clickup.wav");
@@ -327,16 +375,21 @@ const sfxWoosh        = new Audio("woosh.wav");
 const sfxPlayComplete = new Audio("play.wav");
 const sfxLoading      = new Audio("loading.wav");
 const sfxAlarm        = new Audio("alarm.wav");
-[sfxDown, sfxUp, sfxWoosh, sfxPlayComplete, sfxLoading, sfxAlarm, playSong, bgMusic].forEach(a => a.preload = "auto");
-// Keep click down/up feedback, but mute the bigger "bubble" SFX (woosh / play) for now.
-sfxDown.volume        = 0.6;
-sfxUp.volume          = 0.6;
-sfxWoosh.volume       = 0;
-sfxPlayComplete.volume = 0;
-sfxLoading.loop = true; sfxLoading.volume = 0.5;
-sfxAlarm.loop   = true; sfxAlarm.volume   = 0.6;
+const sfxAlmost       = new Audio("almost.wav");
+const sfxClaim        = new Audio("claim.wav");
+[sfxDown, sfxUp, sfxWoosh, sfxPlayComplete, sfxLoading, sfxAlarm, sfxAlmost, sfxClaim, playSong, bgMusic].forEach(a => a.preload = "auto");
+// Click down/up plus "bubble" SFX. Woosh/play are used on winner changes + round resets.
+sfxDown.volume         = 0.6;
+sfxUp.volume           = 0.6;
+sfxWoosh.volume        = 0.35;
+sfxPlayComplete.volume = 0.35;
+sfxLoading.loop = false; sfxLoading.volume = 0.05;
+sfxAlarm.loop   = true; sfxAlarm.volume   = 0.4;
+sfxAlmost.volume = 0.5;
+sfxClaim.volume  = 0.5;
 
 let alarmPlaying      = false;
+let almostPlaying     = false;
 let lastSongWinner    = null;  // winner pubkey string we last started playSong for
 let lastSongPlays     = null;  // sessionPlays value when we started playSong
 
@@ -372,6 +425,18 @@ function stopAlarm() {
   try { sfxAlarm.pause(); sfxAlarm.currentTime = 0; } catch {}
   alarmPlaying = false;
 }
+function startAlmost() {
+  if (sfxMuted || !sfxAlmost || almostPlaying) return;
+  try {
+    sfxAlmost.currentTime = 0;
+    sfxAlmost.play().then(() => { almostPlaying = true; }).catch(() => {});
+  } catch {}
+}
+function stopAlmost() {
+  if (!sfxAlmost || !almostPlaying) return;
+  try { sfxAlmost.pause(); sfxAlmost.currentTime = 0; } catch {}
+  almostPlaying = false;
+}
 function playSfx(a) {
   if (!a || sfxMuted) return;
   try { a.currentTime = 0; a.play().catch(() => {}); } catch {}
@@ -395,6 +460,7 @@ function setSfxMuted(v) {
   if (sfxMuted) {
     stopLoadingSound();
     stopAlarm();
+    stopAlmost();
   }
   updateAudioButtons();
 }
@@ -421,17 +487,16 @@ function updatePhaseMusic(phase) {
     stopPlaySong();
     return;
   }
-  if (phase === "COOLDOWN") {
-    // Cooldown song only
-    startBgMusicIfAllowed();
-    stopPlaySong();
-  } else if (phase === "ACTIVE") {
+  if (phase === "ACTIVE") {
     // Active round: playSong is driven by winner / plays changes;
     // cooldown music should be off.
     stopBgMusic();
+    // playSong is managed by handlePlaySongForState
   } else {
-    // Other phases: no background music
-    stopBgMusic();
+    // Between rounds (cooldown, idle, pre-first-play, post-cooldown-unclaimed),
+    // keep the cooldown song running until a new game starts.
+    startBgMusicIfAllowed();
+    // playSong only makes sense during ACTIVE, so ensure it's off here.
     stopPlaySong();
   }
 }
@@ -513,6 +578,135 @@ function shortPk(pk58) {
   return `${pk58.slice(0, 4)}…${pk58.slice(-4)}`;
 }
 
+// Username cache (address -> username), filled from relay names and GET /usernames
+const usernameCache = new Map();
+function displayName(addr) {
+  if (!addr) return "—";
+  const a = typeof addr === "string" ? addr : (addr?.toBase58?.() ?? "");
+  return usernameCache.get(a) || shortPk(a);
+}
+function mergeNamesFromPayload(payload) {
+  if (payload?.names && typeof payload.names === "object") {
+    for (const [address, username] of Object.entries(payload.names)) {
+      if (address && username) usernameCache.set(address, username);
+    }
+  }
+}
+
+// Base58 encode (for wallet signature → server). Alphabet matches bs58.
+const BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+function base58Encode(bytes) {
+  if (!bytes || bytes.length === 0) return "";
+  let num = 0n;
+  for (let i = 0; i < bytes.length; i++) num = num * 256n + BigInt(bytes[i]);
+  let s = "";
+  while (num > 0n) {
+    s = BASE58_ALPHABET[Number(num % 58n)] + s;
+    num = num / 58n;
+  }
+  for (let i = 0; i < bytes.length && bytes[i] === 0; i++) s = "1" + s;
+  return s;
+}
+
+// Must match relay-server buildUsernameMessage exactly
+function buildUsernameMessage(address, username, nonce) {
+  return [
+    "ButtonGame Username Set",
+    `Address: ${address}`,
+    `Username: ${username}`,
+    `Nonce: ${nonce}`,
+  ].join("\n");
+}
+
+function validateUsernameInput(u) {
+  if (typeof u !== "string") return { ok: false, reason: "Enter a username" };
+  const username = u.trim();
+  if (username.length < 3) return { ok: false, reason: "Min 3 characters" };
+  if (username.length > 18) return { ok: false, reason: "Max 18 characters" };
+  if (!/^[a-zA-Z0-9_.-]+$/.test(username)) return { ok: false, reason: "Only letters, numbers, _ - ." };
+  return { ok: true, username };
+}
+
+function openUsernameModal(currentName = "") {
+  if (usernameModal) {
+    usernameModal.classList.remove("hidden");
+    usernameModal.setAttribute("aria-hidden", "false");
+    if (usernameError) { usernameError.textContent = ""; usernameError.classList.add("hidden"); }
+    if (usernameInput) { usernameInput.value = currentName; usernameInput.focus(); }
+  }
+}
+function closeUsernameModal() {
+  if (usernameModal) {
+    usernameModal.classList.add("hidden");
+    usernameModal.setAttribute("aria-hidden", "true");
+  }
+}
+
+async function setUsernameOnRelay() {
+  if (!RELAY_URL || !walletPubkey) return;
+  const raw = usernameInput?.value?.trim() ?? "";
+  const v = validateUsernameInput(raw);
+  if (!v.ok) { toastWarn("Invalid username", v.reason); return; }
+  const username = v.username;
+  const address = walletPubkey.toBase58();
+  const base = RELAY_URL.replace(/\/$/, "");
+
+  try {
+    // Enforce no duplicate usernames: must pass availability check before signing
+    const availRes = await fetch(`${base}/username/available?username=${encodeURIComponent(username)}&address=${encodeURIComponent(address)}`);
+    if (!availRes.ok) {
+      if (usernameError) { usernameError.textContent = "Could not check username. Try again."; usernameError.classList.remove("hidden"); }
+      toastError("Set name failed", "Could not verify username availability. Try again.");
+      return;
+    }
+    const avail = await availRes.json().catch(() => ({}));
+    if (avail.available === false) {
+      if (usernameError) { usernameError.textContent = "That username is already in use. Choose another."; usernameError.classList.remove("hidden"); }
+      toastError("Username taken", "That username is already in use. Choose another.");
+      return;
+    }
+    const challengeRes = await fetch(`${base}/challenge?address=${encodeURIComponent(address)}`);
+    if (!challengeRes.ok) { toastError("Set name failed", "Could not get challenge"); return; }
+    const { nonce, messageToSign } = await challengeRes.json();
+    if (!nonce || !messageToSign) { toastError("Set name failed", "Invalid challenge"); return; }
+
+    const message = buildUsernameMessage(address, username, nonce);
+    const messageBytes = new TextEncoder().encode(message);
+
+    const provider = getWalletProvider();
+    if (!provider?.signMessage) { toastError("Set name failed", "Wallet does not support signing"); return; }
+
+    let signed = await provider.signMessage(messageBytes, "utf8");
+    const sigBytes = signed?.signature ?? signed;
+    if (!sigBytes) { toastError("Set name failed", "No signature returned"); return; }
+    const signatureB58 = Array.isArray(sigBytes) || sigBytes instanceof Uint8Array
+      ? base58Encode(sigBytes)
+      : String(sigBytes);
+
+    const postRes = await fetch(`${base}/username`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ address, username, signature: signatureB58, nonce }),
+    });
+    const data = await postRes.json().catch(() => ({}));
+    if (!postRes.ok) {
+      const msg = data?.error || postRes.statusText;
+      const isTaken = postRes.status === 409 || /already taken|taken/i.test(String(msg));
+      if (isTaken && usernameError) { usernameError.textContent = "That username is already in use. Choose another."; usernameError.classList.remove("hidden"); }
+      toastError(isTaken ? "Username taken" : "Set name failed", isTaken ? "That username is already in use. Choose another." : msg);
+      return;
+    }
+    usernameCache.set(address, username);
+    closeUsernameModal();
+    toastSuccess("Username set", `You'll appear as “${username}” in the feed.`);
+    renderWalletPill();
+    renderWinnerLog();
+    renderClaimLog();
+  } catch (e) {
+    toastError("Set name failed", e?.message ?? String(e));
+  }
+}
+
 async function getMintDecimals() {
   const info     = await connection.getParsedAccountInfo(mintPk, "confirmed");
   const decimals = info?.value?.data?.parsed?.info?.decimals;
@@ -534,6 +728,16 @@ function potDivisorFromPlays(plays) {
 
 const tokenIntFmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 function fmtRounded(n) { return tokenIntFmt.format(Number(n) / (10 ** mintDecimals)); }
+
+const tokenCompactFmt = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
+function fmtCompactTokens(raw) {
+  const base = Number(raw) / (10 ** mintDecimals || 1);
+  const abs  = Math.abs(base);
+  if (abs >= 1_000_000_000) return `${tokenCompactFmt.format(base / 1_000_000_000)}B`;
+  if (abs >= 1_000_000)     return `${tokenCompactFmt.format(base / 1_000_000)}M`;
+  if (abs >= 1_000)         return `${tokenCompactFmt.format(base / 1_000)}K`;
+  return tokenIntFmt.format(base);
+}
 
 function fmtTierReward(divisor) {
   const extra = divisor == 5n  ? 25000n * 1_000_000_000n
@@ -629,18 +833,21 @@ async function fastStateSyncBurst() {
 /////////////////////////////
 function buildShareUrl() { return window.location.href.split("?")[0]; }
 
-// ── LEADING share (during active round) ──────────────────
+// ── Play share (shown after user has played this session) ──────────────────
 function buildLeadingShareText() {
   const pot = potDisplay?.textContent ?? "?";
-  return `I'm leading the $BUTTON pot — ${pot} tokens up for grabs. Come knock me off. 👆`;
+  const host = (typeof window !== "undefined" && window.location?.origin)
+    ? new URL(window.location.origin).hostname
+    : "buttongame.xyz";
+  return `I pressed the BUTTON at ${host}\n\nCurrent Pot: ${pot} $BUTTON`;
 }
 
-function updateShareCard(isLeading) {
+function updateShareCard(show) {
   if (!shareCard) return;
-  if (isLeading && !shareCardVisible) {
+  if (show && !shareCardVisible) {
     shareCard.classList.remove("hidden");
     shareCardVisible = true;
-  } else if (!isLeading && shareCardVisible) {
+  } else if (!show && shareCardVisible) {
     shareCard.classList.add("hidden");
     shareCardVisible = false;
   }
@@ -783,11 +990,15 @@ function updateThresholdPanelIfNeeded() {
 
   const plays   = Number(latestState.sessionPlays || 0);
   const divisor = potDivisorFromPlays(plays);
-  const pct     = Number(100n / divisor);
+  const pctNum  = 100 / Number(divisor);
 
-  if (tpVaultBalance) tpVaultBalance.textContent = fmtRounded(getDisplayVault());
-  if (tpProjectedPot) tpProjectedPot.textContent = `${pct}% of Vault`;
-  if (tpPlays)        tpPlays.textContent         = String(plays);
+  const displayVault = getDisplayVault();
+  const potRaw       = computePotFromStateAndVault(latestState, displayVault);
+
+  // Sidebar stats: Vault | % of Vault (middle) | Pot. Percentage with one decimal.
+  if (tpVaultBalance) tpVaultBalance.textContent = fmtCompactTokens(displayVault);
+  if (tpPctVault)    tpPctVault.textContent      = `${pctNum.toFixed(1)}%`;
+  if (tpProjectedPot) tpProjectedPot.textContent = fmtCompactTokens(potRaw);
   if (tpDivisor)      tpDivisor.textContent       = String(divisor);
 
   if (tier0Reward) tier0Reward.textContent = fmtTierReward(20n);
@@ -923,7 +1134,7 @@ function phaseLabel(phase, gs) {
 }
 
 /////////////////////////////
-// WINNER FEED
+// WINNER FEED + SFX ON WINNER CHANGE
 /////////////////////////////
 function trackWinnerChanges(gs) {
   if (!gs) return;
@@ -931,10 +1142,23 @@ function trackWinnerChanges(gs) {
   const def  = PublicKey.default.toBase58();
   if (w58 === def) return;
 
-  if (lastWinnerSeen === null) { lastWinnerSeen = w58; pushWinnerEntry(w58, Date.now(), true); return; }
+  if (lastWinnerSeen === null) {
+    lastWinnerSeen = w58;
+    pushWinnerEntry(w58, Date.now(), true);
+    return;
+  }
   if (w58 === lastWinnerSeen) return;
+
+  const youNowWinner   = !!walletPubkey && walletPubkey.toBase58() === w58;
+
   lastWinnerSeen = w58;
   pushWinnerEntry(w58, Date.now(), false);
+
+  // SFX on winner change:
+  // - If YOU become the winner   → play "play.wav"
+  // - Otherwise (someone else)   → play "woosh.wav"
+  if (youNowWinner) playSfx(sfxPlayComplete);
+  else              playSfx(sfxWoosh);
 }
 
 // Play-song routing: restart on winner change or new button press (sessionPlays),
@@ -1005,10 +1229,14 @@ function renderWinnerLog() {
                   : isYou          ? "feedLine winner-you"
                   :                  "feedLine";
 
+    const nameForRow = displayName(row.winner);
+    const youLabel = isYou && usernameCache.get(row.winner)
+      ? `You (${nameForRow})`
+      : isYou ? "You" : nameForRow;
     const badge = isTop ? `<span class="feedBadge ${isYou ? "gold" : ""}">LEADING</span>` : "";
     div.innerHTML =
       `${badge}` +
-      `<span title="${escapeHtml(row.winner)}" style="flex:1">${escapeHtml(isYou ? "You" : shortPk(row.winner))}</span>` +
+      `<span title="${escapeHtml(row.winner)}" style="flex:1">${escapeHtml(youLabel)}</span>` +
       `<span style="opacity:.5;font-size:10px">${escapeHtml(fmtSince(row.tsMs))}</span>` +
       ` <a href="${solscanAccountUrl(row.winner)}" target="_blank" rel="noreferrer" style="opacity:.5;color:inherit;text-decoration:underline;font-size:10px">↗</a>`;
     winnerLogEl.appendChild(div);
@@ -1047,7 +1275,20 @@ function installWalletListeners(provider) {
     renderBalanceBar();
     renderWinnerLog();
     render();
-    if (pubkey) refreshUserBalance();
+
+    // Immediate data refresh for the new wallet so UI doesn’t feel stuck
+    if (pubkey) {
+      refreshUserBalance();
+      if (RELAY_URL) {
+        fetchUsernamesForAddresses([pubkey.toBase58()]).then(() => { renderWalletPill(); renderWinnerLog(); });
+        fetch(RELAY_URL.replace(/\/$/, "") + "/state")
+          .then(r => (r.ok ? r.json() : null))
+          .then(data => { if (data) applyRelayState(data); })
+          .catch(() => {});
+      } else {
+        refreshStateOnly("wallet-change");
+      }
+    }
   });
 
   provider.on?.("disconnect", () => {
@@ -1097,10 +1338,11 @@ async function connectWallet() {
   userTokenBalance = null;
 
   hideOnboardingCards();
+  if (RELAY_URL) await fetchUsernamesForAddresses([walletPubkey.toBase58()]);
   renderWinnerLog();
   render();
 
-  toastSuccess("Wallet connected", `${shortPk(walletPubkey.toBase58())} — ready to play.`);
+  toastSuccess("Wallet connected", `${displayName(walletPubkey.toBase58())} — ready to play.`);
 
   refreshStateOnly("wallet-connect");
   refreshUserBalance();
@@ -1123,12 +1365,28 @@ async function disconnectWallet() {
 }
 
 function renderWalletPill() {
+  const walletStatusEl = el("walletStatus");
   if (walletPubkey) {
     walletDot?.classList.add("on");
-    if (walletText) walletText.textContent = shortPk(walletPubkey.toBase58());
+    const addr = walletPubkey.toBase58();
+    if (walletText) walletText.textContent = displayName(addr);
+    const hasName = !!usernameCache.get(addr);
+    if (setUsernameBubble && RELAY_URL) {
+      if (hasName) {
+        setUsernameBubble.classList.add("hidden");
+      } else {
+        setUsernameBubble.classList.remove("hidden");
+      }
+    } else if (setUsernameBubble) {
+      setUsernameBubble.classList.add("hidden");
+    }
+    if (walletStatusEl && RELAY_URL) walletStatusEl.classList.add("can-edit-name");
+    else if (walletStatusEl) walletStatusEl.classList.remove("can-edit-name");
   } else {
     walletDot?.classList.remove("on");
     if (walletText) walletText.textContent = "Not connected";
+    if (setUsernameBubble) setUsernameBubble.classList.add("hidden");
+    if (walletStatusEl) walletStatusEl.classList.remove("can-edit-name");
   }
 }
 
@@ -1293,7 +1551,7 @@ async function refreshStateOnly(source = "manual") {
     addLog(`Read error: ${e.message || e}`);
   } finally {
     statePollInFlight = false;
-    if (source === "poll") scheduleNextStatePoll(hadError);
+    if (source === "poll" || source === "wallet-change") scheduleNextStatePoll(hadError);
   }
 }
 
@@ -1439,9 +1697,14 @@ function render() {
 
   const winner58          = latestState.currentWinner.toBase58();
   const isWinnerConnected = !!walletPubkey && walletPubkey.toBase58() === winner58;
+  const defaultPk58       = PublicKey.default.toBase58();
+  if (currentWinnerDisplay) {
+    currentWinnerDisplay.textContent = winner58 !== defaultPk58 ? displayName(winner58) : "—";
+  }
 
-  // Leading share card: show only while we're the leader in an active round
-  updateShareCard(isWinnerConnected && phase === "ACTIVE");
+  // Share card: show when leading or after they've played this session (tweet notice stays available)
+  const hasPlayedSession = !!walletPubkey && winnerHistory.some((row) => row.winner === walletPubkey.toBase58());
+  updateShareCard((isWinnerConnected && phase === "ACTIVE") || hasPlayedSession);
 
   // Claim share card: hide once a new round goes ACTIVE (someone pressed after our claim)
   if (claimShareCardVisible && phase === "ACTIVE") {
@@ -1474,12 +1737,17 @@ function render() {
   if (clockDisplay) clockDisplay.textContent = fmtClock(secondsLeft);
   if (barFill) barFill.style.width = `${pct * 100}%`;
 
-  // ── URGENCY ───────────────────────────────────────────
+  // ── URGENCY (< 10s): alarm for others, almost.wav for the winner ─────────
   const isUrgent = phase === "ACTIVE" && secondsLeft > 0 && secondsLeft <= URGENT_SECS;
   clockDisplay?.classList.toggle("urgent", isUrgent);
   barFill?.classList.toggle("urgent", isUrgent);
-  if (isUrgent) startAlarm();
-  else          stopAlarm();
+  if (isUrgent) {
+    if (isWinnerConnected) { startAlmost(); stopAlarm(); }
+    else                   { startAlarm(); stopAlmost(); }
+  } else {
+    stopAlarm();
+    stopAlmost();
+  }
 
   // ── TIMER HINT ────────────────────────────────────────
   if (timerHint) {
@@ -1499,7 +1767,7 @@ function render() {
   claimArmed = canClaim;
   mainMode   = canClaim ? "CLAIM" : "PLAY";
 
-  mainBtn.classList.remove("disabled", "claimLocked", "claimArmed", "urgent", "cooldown");
+  mainBtn.classList.remove("disabled", "claimLocked", "claimArmed", "claimWaiting", "urgent", "cooldown");
   btnGlowRing?.classList.remove("active", "urgent", "claim-glow");
 
   if (mainMode === "CLAIM") {
@@ -1507,6 +1775,16 @@ function render() {
     mainBtn.disabled = false;
     mainBtn.classList.add("claimArmed");
     btnGlowRing?.classList.add("claim-glow");
+    claimWaitHint?.classList.add("hidden");
+    return;
+  }
+
+  // Winner during ACTIVE (round not over): grey "CLAIM" look, clickable but no-op until they can claim
+  if (phase === "ACTIVE" && isWinnerConnected && !timerEnded) {
+    setLabel("CLAIM");
+    mainBtn.disabled = false;
+    mainBtn.classList.add("claimWaiting");
+    claimWaitHint?.classList.remove("hidden");
     return;
   }
 
@@ -1522,18 +1800,22 @@ function render() {
     } else if (phase === "ACTIVE") {
       btnGlowRing?.classList.add("active");
     }
+    claimWaitHint?.classList.add("hidden");
   } else if (!connected) {
     setLabel("CONNECT");
     mainBtn.disabled = false;
+    claimWaitHint?.classList.add("hidden");
   } else if (phase === "COOLDOWN") {
     setLabel("COOLDOWN");
     // Let users "practice" presses during cooldown — clickable but no-op in logic
     mainBtn.disabled = false;
     mainBtn.classList.add("cooldown");
+    claimWaitHint?.classList.add("hidden");
   } else {
     setLabel("WAIT");
     mainBtn.disabled = true;
     mainBtn.classList.add("disabled");
+    claimWaitHint?.classList.add("hidden");
   }
 }
 
@@ -1578,6 +1860,11 @@ async function onMain() {
     return;
   }
 
+  // Winner during ACTIVE (round not over): button shows grey CLAIM but does nothing until round ends
+  if (phase === "ACTIVE" && isWinner && !timerEnded) {
+    return;
+  }
+
   // ── CLAIM ──────────────────────────────────────────────
   if (isWinner && latestState.unclaimed && latestState.enabled && timerEnded) {
     const ix = await buildClaimIx({
@@ -1608,6 +1895,9 @@ async function onMain() {
       // the rest of the network saw, using the predicted
       // post-claim vault (vault - potAtClaim).
       setBtnPending(false);
+
+      // Play celebratory claim sound for the winner once confirmation lands.
+      playSfx(sfxClaim);
 
       const nextVaultAfterClaim = latestVaultAmount - potAtClaim;
       const nextPotAfterClaim   =
@@ -1650,6 +1940,12 @@ async function onMain() {
   const ataOk = await ensureAtaExistsForWallet();
   if (!ataOk) { showNoAtaCard(); return; }
 
+  // If we know the balance and it's below the play cost, don't send a tx — show the buy-tokens notice instead.
+  if (userTokenBalance !== null && latestState?.playCost > 0n && userTokenBalance < latestState.playCost) {
+    showNoAtaCard();
+    return;
+  }
+
   const playerAta = findAta(walletPubkey, mintPk);
   const DEFAULT_PK = "11111111111111111111111111111111";
   const prevWinnerAta = latestState.currentWinnerAta.toBase58() === DEFAULT_PK
@@ -1683,9 +1979,6 @@ async function onMain() {
     // the button label snaps back in sync with the new round
     // before we show success toasts/animations.
     setBtnPending(false);
-
-    // Local feedback that our play landed, even if we suppress the global woosh.
-    playSfx(sfxPlayComplete);
 
     pending._dismiss();
     toastSuccess("Button pressed! ✅", "You're leading. Hold tight — don't let the clock run out.");
@@ -1739,6 +2032,53 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && sidebar?.classList.contains("open")) closeSidebar();
 });
 
+// Claim log panel (left dropdown)
+function openClaimLogPanel() {
+  claimLogPanel?.classList.remove("hidden");
+  claimLogPanel?.setAttribute("aria-hidden", "false");
+}
+function closeClaimLogPanel() {
+  claimLogPanel?.classList.add("hidden");
+  claimLogPanel?.setAttribute("aria-hidden", "true");
+}
+claimLogToggleBtn?.addEventListener("click", () => {
+  if (claimLogPanel?.classList.contains("hidden")) openClaimLogPanel();
+  else closeClaimLogPanel();
+});
+claimLogCloseBtn?.addEventListener("click", closeClaimLogPanel);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && claimLogPanel && !claimLogPanel.classList.contains("hidden")) closeClaimLogPanel();
+});
+
+// Username modal: bubble under wallet (when name not set) and click on wallet pill (when connected) to set/change name
+setUsernameBubble?.addEventListener("click", (e) => { e.stopPropagation(); if (walletPubkey) openUsernameModal(); });
+const walletStatusEl = el("walletStatus");
+walletStatusEl?.addEventListener("click", () => {
+  if (!walletPubkey || !RELAY_URL) return;
+  const current = usernameCache.get(walletPubkey.toBase58()) || "";
+  openUsernameModal(current);
+});
+walletStatusEl?.addEventListener("keydown", (e) => {
+  if ((e.key === "Enter" || e.key === " ") && walletPubkey && RELAY_URL) {
+    e.preventDefault();
+    const current = usernameCache.get(walletPubkey.toBase58()) || "";
+    openUsernameModal(current);
+  }
+});
+usernameCancelBtn?.addEventListener("click", closeUsernameModal);
+usernameModal?.querySelector(".username-modal-backdrop")?.addEventListener("click", closeUsernameModal);
+usernameSetBtn?.addEventListener("click", () => setUsernameOnRelay());
+usernameInput?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") setUsernameOnRelay();
+  if (e.key === "Escape") closeUsernameModal();
+});
+usernameInput?.addEventListener("input", () => {
+  if (usernameError && !usernameError.classList.contains("hidden")) { usernameError.textContent = ""; usernameError.classList.add("hidden"); }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && usernameModal && !usernameModal.classList.contains("hidden")) closeUsernameModal();
+});
+
 /////////////////////////////
 // DETAILS TOGGLE (inside sidebar)
 /////////////////////////////
@@ -1762,9 +2102,14 @@ mainBtn.addEventListener("pointerdown", e => {
   try { mainBtn.setPointerCapture(e.pointerId); } catch {}
   playSfx(sfxDown);
 
+  if (mainBtn.classList.contains("claimWaiting")) {
+    claimWaitHint?.classList.remove("hidden");
+  }
+
   const { left, top, width, height } = mainBtn.getBoundingClientRect();
   let color;
   if (mainBtn.classList.contains("claimArmed"))       color = "#F9AB00";  // golden
+  else if (mainBtn.classList.contains("claimWaiting")) color = "#6B7280";  // grey
   else if (mainBtn.classList.contains("urgent"))      color = "#E8392C";  // red
   else if (mainBtn.classList.contains("cooldown"))    color = "#6366F1";  // indigo to match cooldown
   else                                                color = "#1E8E3E";  // default green
@@ -1787,9 +2132,91 @@ mainBtn.addEventListener("click",               onMain);
 // RELAY / SSE
 /////////////////////////////
 let relayEventSource = null;
+let claimLog = [];
+
+function claimWinnerDisplay(c) {
+  const w = c.winner;
+  if (!w) return "—";
+  const addr = typeof w === "string" ? w : (w?.toBase58?.() ?? "");
+  return addr ? displayName(addr) : "—";
+}
+
+function claimTimeAgo(c) {
+  let ms = c.detectedAtMs;
+  if (ms == null && c.detected_at) ms = new Date(c.detected_at).getTime();
+  if (ms == null) return "";
+  const sec = Math.max(0, Math.floor((Date.now() - ms) / 1000));
+  if (sec < 60) return `${sec}s ago`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+  return `${Math.floor(sec / 86400)}d ago`;
+}
+
+function renderClaimLog() {
+  if (!claimLogList) return;
+  const decimals = mintDecimals ?? 6;
+  const d = BigInt(10) ** BigInt(decimals);
+  claimLogList.innerHTML = claimLog.length === 0
+    ? "<p class=\"claim-log-empty\">No claims yet.</p>"
+    : claimLog.map((c) => {
+        const amountRaw = c.amount != null && c.amount !== "" ? BigInt(c.amount) : null;
+        const amountStr = amountRaw != null ? fmtRounded(amountRaw) : "—";
+        const sig = c.tx || c.signature || c.txSig || c.txid || c.tx_sig || c.sig;
+        const winnerLabel = escapeHtml(claimWinnerDisplay(c));
+        const winnerHtml = sig
+          ? `<a href="${solscanTxUrl(sig)}" target="_blank" rel="noreferrer" class="claim-log-winner-link">${winnerLabel}</a>`
+          : `<span class="claim-log-winner">${winnerLabel}</span>`;
+        const timeStr = escapeHtml(claimTimeAgo(c));
+        return `<div class="claim-log-item">
+          ${winnerHtml}
+          <span class="claim-log-amount">${escapeHtml(amountStr)}</span>
+          <span class="claim-log-time">${timeStr}</span>
+        </div>`;
+      }).join("");
+}
+
+function escapeHtml(s) {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+async function fetchUsernamesForAddresses(addresses) {
+  if (!RELAY_URL || !addresses.length) return;
+  const uniq = [...new Set(addresses)].filter(Boolean);
+  if (uniq.length === 0) return;
+  try {
+    const res = await fetch(RELAY_URL.replace(/\/$/, "") + "/usernames?addresses=" + uniq.map(encodeURIComponent).join(","));
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data?.names && typeof data.names === "object") mergeNamesFromPayload(data);
+  } catch (e) { /* ignore */ }
+}
+
+async function fetchClaims() {
+  if (!RELAY_URL || !claimLogList) return;
+  try {
+    const res = await fetch(RELAY_URL.replace(/\/$/, "") + "/claims");
+    if (!res.ok) return;
+    const data = await res.json();
+    if (Array.isArray(data.claims)) {
+      claimLog = data.claims.slice();
+      // Ensure latest → oldest (top to bottom) based on detectedAtMs / detected_at.
+      claimLog.sort((a, b) => {
+        const ams = a.detectedAtMs ?? (a.detected_at ? new Date(a.detected_at).getTime() : 0);
+        const bms = b.detectedAtMs ?? (b.detected_at ? new Date(b.detected_at).getTime() : 0);
+        return bms - ams;
+      });
+      const winnerAddrs = claimLog.map(c => (c.winner && (typeof c.winner === "string" ? c.winner : c.winner?.toBase58?.()))).filter(Boolean);
+      await fetchUsernamesForAddresses(winnerAddrs);
+      renderClaimLog();
+    }
+  } catch (e) { console.warn("[Relay] fetch claims failed:", e.message); }
+}
 
 function applyRelayState(payload) {
   if (payload.type === "error") { console.warn("[Relay]", payload.message); return; }
+  mergeNamesFromPayload(payload);
   if (payload.type !== "state") return;
 
   const gs      = payload.state;
@@ -1872,7 +2299,27 @@ function connectRelay() {
   es.onopen    = () => dot()?.classList.add("live");
   es.onerror   = () => dot()?.classList.remove("live");
   es.onmessage = e => {
-    try { applyRelayState(JSON.parse(e.data)); } catch (err) { console.warn("[Relay] bad msg", err); }
+    try {
+      const payload = JSON.parse(e.data);
+      mergeNamesFromPayload(payload);
+      if (payload.type === "username" && payload.address && payload.username) {
+        usernameCache.set(payload.address, payload.username);
+        renderWinnerLog();
+        renderClaimLog();
+      }
+      if (payload.type === "claim" && payload.claim) {
+        claimLog.push(payload.claim);
+        const max = 200;
+        if (claimLog.length > max) claimLog.shift();
+        claimLog.sort((a, b) => {
+          const ams = a.detectedAtMs ?? (a.detected_at ? new Date(a.detected_at).getTime() : 0);
+          const bms = b.detectedAtMs ?? (b.detected_at ? new Date(b.detected_at).getTime() : 0);
+          return bms - ams;
+        });
+        renderClaimLog();
+      }
+      applyRelayState(payload);
+    } catch (err) { console.warn("[Relay] bad msg", err); }
   };
 }
 
@@ -1882,7 +2329,10 @@ function connectRelay() {
 (async function boot() {
   connection = new Connection(rpcUrl(), "confirmed");
 
+  initTheme();
+
   if (!RELAY_URL && relayStatusEl) relayStatusEl.style.display = "none";
+  if (!RELAY_URL && claimLogToggleBtn) claimLogToggleBtn.style.display = "none";
 
   // One-time static links
   programLink.textContent = programIdPk.toBase58();
@@ -1926,7 +2376,9 @@ function connectRelay() {
       if (snap.ok) applyRelayState(await snap.json());
     } catch (e) { console.warn("[Relay] snapshot failed:", e.message); }
 
+    fetchClaims();
     connectRelay();
+    if (walletPubkey) fetchUsernamesForAddresses([walletPubkey.toBase58()]).then(() => { renderWalletPill(); renderWinnerLog(); });
     setInterval(render, UI_TICK_MS);
   } else {
     await refreshStateOnly("boot");
